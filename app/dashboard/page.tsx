@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "./logout-button";
+import MobileNav from "./mobile-nav";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -17,6 +18,32 @@ export default async function DashboardPage() {
   const fullName =
     user.user_metadata?.full_name || user.email?.split("@")[0] || "Student";
 
+  const { data: applications } = await supabase
+    .from("applications")
+    .select("*")
+    .eq("user_id", user.id);
+
+  const { data: documents } = await supabase
+    .from("documents")
+    .select("*")
+    .eq("user_id", user.id);
+
+  const { data: trackedScholarships } = await supabase
+    .from("student_scholarships")
+    .select("*")
+    .eq("user_id", user.id);
+
+  const applicationCount = applications?.length || 0;
+  const documentCount = documents?.length || 0;
+  const scholarshipCount = trackedScholarships?.length || 0;
+
+  const profileCompletion = 30;
+  const documentCompletion = Math.min(Math.round((documentCount / 6) * 100), 100);
+  const applicationReadiness = Math.min(
+    Math.round((profileCompletion + documentCompletion + applicationCount * 10) / 2),
+    100
+  );
+
   const navItems = [
     { name: "Dashboard", href: "/dashboard" },
     { name: "Profile", href: "/dashboard/profile" },
@@ -31,7 +58,7 @@ export default async function DashboardPage() {
   return (
     <main className="min-h-screen bg-[#070B14] text-white">
       <div className="flex min-h-screen">
-        <aside className="hidden w-72 border-r border-white/10 bg-white/[0.03] p-6 backdrop-blur-xl lg:block">
+        <aside className="relative hidden w-72 border-r border-white/10 bg-white/[0.03] p-6 backdrop-blur-xl lg:block">
           <div className="mb-10">
             <h1 className="bg-gradient-to-r from-fuchsia-400 via-purple-300 to-blue-400 bg-clip-text text-xl font-bold uppercase tracking-[0.35em] text-transparent">
               UniNexa
@@ -61,16 +88,14 @@ export default async function DashboardPage() {
           </div>
         </aside>
 
-        <section className="flex-1 p-6 lg:p-10">
-          <div className="mb-8 flex items-center justify-between">
+        <section className="flex-1 p-4 pb-28 sm:p-6 lg:p-10">
+          <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-medium text-fuchsia-300">
-                Dashboard
-              </p>
-              <h2 className="mt-2 text-3xl font-bold tracking-tight lg:text-5xl">
+              <p className="text-sm font-medium text-fuchsia-300">Dashboard</p>
+              <h2 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl">
                 Good evening, {fullName}.
               </h2>
-              <p className="mt-3 text-sm text-white/50">
+              <p className="mt-3 max-w-2xl text-sm text-white/50">
                 Your global study journey is organized in one premium workspace.
               </p>
             </div>
@@ -78,14 +103,19 @@ export default async function DashboardPage() {
             <LogoutButton />
           </div>
 
-          <div className="mb-8 rounded-[2rem] border border-white/10 bg-gradient-to-br from-white/[0.08] to-white/[0.03] p-6 shadow-[0_0_80px_rgba(168,85,247,0.12)] backdrop-blur-2xl lg:p-8">
+          <div className="mb-8 rounded-[2rem] border border-white/10 bg-gradient-to-br from-white/[0.08] to-white/[0.03] p-5 shadow-[0_0_80px_rgba(168,85,247,0.12)] backdrop-blur-2xl sm:p-6 lg:p-8">
             <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
               <div>
                 <p className="text-sm text-white/50">Application readiness</p>
-                <h3 className="mt-3 text-4xl font-bold">42% complete</h3>
+                <h3 className="mt-3 text-4xl font-bold">
+                  {applicationReadiness}% complete
+                </h3>
 
                 <div className="mt-6 h-3 overflow-hidden rounded-full bg-white/10">
-                  <div className="h-full w-[42%] rounded-full bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500" />
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500"
+                    style={{ width: `${applicationReadiness}%` }}
+                  />
                 </div>
 
                 <p className="mt-4 max-w-xl text-sm leading-relaxed text-white/50">
@@ -114,12 +144,12 @@ export default async function DashboardPage() {
             </div>
           </div>
 
-          <div className="mb-8 grid gap-4 md:grid-cols-4">
+          <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              ["Profile", "30%", "3 of 10 sections"],
-              ["Documents", "0/6", "Required files"],
-              ["Applications", "0", "Not submitted"],
-              ["Matches", "12", "Universities found"],
+              ["Profile", `${profileCompletion}%`, "3 of 10 sections"],
+              ["Documents", `${documentCount}/6`, "Required files"],
+              ["Applications", String(applicationCount), "Saved schools"],
+              ["Scholarships", String(scholarshipCount), "Tracked routes"],
             ].map(([title, value, subtitle]) => (
               <div
                 key={title}
@@ -133,10 +163,8 @@ export default async function DashboardPage() {
           </div>
 
           <div className="grid gap-8 lg:grid-cols-[1.4fr_0.8fr]">
-            <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
-              <h3 className="text-xl font-semibold">
-                Your application journey
-              </h3>
+            <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl sm:p-6">
+              <h3 className="text-xl font-semibold">Your application journey</h3>
               <p className="mt-2 text-sm text-white/40">
                 Follow each stage to complete your study abroad process.
               </p>
@@ -151,31 +179,31 @@ export default async function DashboardPage() {
                   },
                   {
                     title: "Upload documents",
-                    status: "Next",
+                    status: documentCount > 0 ? "In progress" : "Next",
                     href: "/dashboard/documents",
-                    active: false,
+                    active: documentCount > 0,
                   },
                   {
                     title: "Match universities",
-                    status: "Coming next",
+                    status: "Ready",
                     href: "/dashboard/universities",
-                    active: false,
+                    active: applicationCount > 0,
                   },
                   {
                     title: "Submit applications",
-                    status: "Locked",
+                    status: applicationCount > 0 ? "In progress" : "Locked",
                     href: "/dashboard/applications",
-                    active: false,
+                    active: applicationCount > 0,
                   },
                   {
                     title: "Find scholarships",
-                    status: "Locked",
+                    status: scholarshipCount > 0 ? "Tracking" : "Recommended",
                     href: "/dashboard/scholarships",
-                    active: false,
+                    active: scholarshipCount > 0,
                   },
                   {
                     title: "Prepare for admission",
-                    status: "Locked",
+                    status: "Advisor support",
                     href: "/dashboard/messages",
                     active: false,
                   },
@@ -186,7 +214,7 @@ export default async function DashboardPage() {
                     className="flex items-center gap-4 rounded-3xl border border-white/10 bg-black/20 p-4 transition hover:bg-white/[0.06]"
                   >
                     <div
-                      className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold ${
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
                         step.active
                           ? "bg-gradient-to-r from-fuchsia-500 to-blue-500"
                           : "bg-white/10 text-white/40"
@@ -207,10 +235,8 @@ export default async function DashboardPage() {
             </div>
 
             <div className="space-y-6">
-              <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
-                <h3 className="text-xl font-semibold">
-                  Recommended countries
-                </h3>
+              <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl sm:p-6">
+                <h3 className="text-xl font-semibold">Recommended countries</h3>
 
                 <div className="mt-5 space-y-3">
                   {["Canada", "United Kingdom", "Germany", "Australia"].map(
@@ -222,9 +248,7 @@ export default async function DashboardPage() {
                       >
                         <div className="flex items-center justify-between">
                           <p className="font-medium">{country}</p>
-                          <span className="text-sm text-fuchsia-300">
-                            Match
-                          </span>
+                          <span className="text-sm text-fuchsia-300">Match</span>
                         </div>
                         <p className="mt-1 text-sm text-white/40">
                           Scholarships and student visa options available.
@@ -235,7 +259,7 @@ export default async function DashboardPage() {
                 </div>
               </div>
 
-              <div className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-fuchsia-500/15 to-blue-500/10 p-6 backdrop-blur-xl">
+              <div className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-fuchsia-500/15 to-blue-500/10 p-5 backdrop-blur-xl sm:p-6">
                 <h3 className="text-xl font-semibold">UniNexa counselor</h3>
                 <p className="mt-2 text-sm leading-relaxed text-white/50">
                   Get guidance on universities, documents, scholarships, and
@@ -253,6 +277,8 @@ export default async function DashboardPage() {
           </div>
         </section>
       </div>
+
+      <MobileNav />
     </main>
   );
 }
