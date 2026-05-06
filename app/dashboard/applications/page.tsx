@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "../logout-button";
+import MobileNav from "../mobile-nav";
 
 export default async function ApplicationsPage() {
   const supabase = await createClient();
@@ -21,9 +22,15 @@ export default async function ApplicationsPage() {
     .order("created_at", { ascending: false });
 
   const totalApplications = applications?.length || 0;
-  const inProgress = applications?.filter((app) => app.status === "In progress").length || 0;
-  const ready = applications?.filter((app) => app.progress >= 80).length || 0;
-  const submitted = applications?.filter((app) => app.status === "Submitted").length || 0;
+
+  const inProgress =
+    applications?.filter((app) => app.status === "In progress").length || 0;
+
+  const ready =
+    applications?.filter((app) => (app.progress || 0) >= 80).length || 0;
+
+  const submitted =
+    applications?.filter((app) => app.status === "Submitted").length || 0;
 
   const averageProgress =
     totalApplications > 0
@@ -79,13 +86,13 @@ export default async function ApplicationsPage() {
           </nav>
         </aside>
 
-        <section className="flex-1 p-6 lg:p-10">
-          <div className="mb-8 flex items-center justify-between">
+        <section className="flex-1 p-4 pb-28 sm:p-6 lg:p-10">
+          <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-medium text-fuchsia-300">
                 Applications
               </p>
-              <h2 className="mt-2 text-4xl font-bold tracking-tight lg:text-5xl">
+              <h2 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl">
                 Your university applications.
               </h2>
               <p className="mt-3 max-w-2xl text-sm text-white/50">
@@ -96,7 +103,7 @@ export default async function ApplicationsPage() {
             <LogoutButton />
           </div>
 
-          <div className="mb-8 grid gap-4 md:grid-cols-4">
+          <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {stats.map(([title, value]) => (
               <div
                 key={title}
@@ -108,7 +115,7 @@ export default async function ApplicationsPage() {
             ))}
           </div>
 
-          <div className="mb-8 rounded-[2rem] border border-white/10 bg-gradient-to-br from-white/[0.08] to-white/[0.03] p-6 shadow-[0_0_80px_rgba(168,85,247,0.12)] backdrop-blur-2xl">
+          <div className="mb-8 rounded-[2rem] border border-white/10 bg-gradient-to-br from-white/[0.08] to-white/[0.03] p-5 shadow-[0_0_80px_rgba(168,85,247,0.12)] backdrop-blur-2xl sm:p-6">
             <div className="grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
               <div>
                 <p className="text-sm text-white/50">
@@ -145,6 +152,13 @@ export default async function ApplicationsPage() {
                     <p className="mt-1 text-sm text-white/40">
                       Program: {nextApplication.program || "Undecided"}
                     </p>
+
+                    <Link
+                      href={`/dashboard/applications/${nextApplication.id}`}
+                      className="mt-5 inline-block rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/90"
+                    >
+                      Open application
+                    </Link>
                   </>
                 ) : (
                   <>
@@ -154,22 +168,22 @@ export default async function ApplicationsPage() {
                     <p className="mt-2 text-sm text-white/40">
                       Start by adding a university.
                     </p>
+
+                    <Link
+                      href="/dashboard/universities"
+                      className="mt-5 inline-block rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/90"
+                    >
+                      Add universities
+                    </Link>
                   </>
                 )}
-
-                <Link
-                  href="/dashboard/universities"
-                  className="mt-5 inline-block rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/90"
-                >
-                  Add universities
-                </Link>
               </div>
             </div>
           </div>
 
           <div className="grid gap-8 lg:grid-cols-[1.4fr_0.8fr]">
-            <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
-              <div className="mb-6 flex items-center justify-between">
+            <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl sm:p-6">
+              <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 className="text-xl font-semibold">
                     Application pipeline
@@ -181,7 +195,7 @@ export default async function ApplicationsPage() {
 
                 <Link
                   href="/dashboard/universities"
-                  className="rounded-2xl bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/20"
+                  className="rounded-2xl bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500 px-5 py-3 text-center text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/20"
                 >
                   Add application
                 </Link>
@@ -224,7 +238,7 @@ export default async function ApplicationsPage() {
                           </p>
                         </div>
 
-                        <span className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs text-white/70">
+                        <span className="w-fit rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs text-white/70">
                           {app.status || "In progress"}
                         </span>
                       </div>
@@ -254,14 +268,17 @@ export default async function ApplicationsPage() {
                         ))}
                       </div>
 
-                      <div className="mt-5 flex items-center justify-between">
+                      <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-sm text-white/40">
                           Deadline: {app.deadline || "Not set"}
                         </p>
 
-                        <button className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white/70 transition hover:bg-white/10">
+                        <Link
+                          href={`/dashboard/applications/${app.id}`}
+                          className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-center text-sm font-semibold text-white/70 transition hover:bg-white/10"
+                        >
                           Open
-                        </button>
+                        </Link>
                       </div>
                     </div>
                   ))}
@@ -270,7 +287,7 @@ export default async function ApplicationsPage() {
             </div>
 
             <div className="space-y-6">
-              <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
+              <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl sm:p-6">
                 <h3 className="text-xl font-semibold">Required checklist</h3>
                 <p className="mt-2 text-sm text-white/40">
                   Common documents needed across most applications.
@@ -305,7 +322,7 @@ export default async function ApplicationsPage() {
                 </div>
               </div>
 
-              <div className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-fuchsia-500/15 to-blue-500/10 p-6 backdrop-blur-xl">
+              <div className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-fuchsia-500/15 to-blue-500/10 p-5 backdrop-blur-xl sm:p-6">
                 <h3 className="text-xl font-semibold">Recommended next move</h3>
                 <p className="mt-2 text-sm leading-relaxed text-white/50">
                   Add a program, set your deadline, and upload your KCSE
@@ -323,6 +340,8 @@ export default async function ApplicationsPage() {
           </div>
         </section>
       </div>
+
+      <MobileNav />
     </main>
   );
 }

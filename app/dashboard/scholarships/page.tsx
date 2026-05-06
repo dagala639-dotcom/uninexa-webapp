@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "../logout-button";
+import MobileNav from "../mobile-nav";
 
 export default async function ScholarshipsPage() {
   const supabase = await createClient();
@@ -73,17 +74,17 @@ export default async function ScholarshipsPage() {
           </nav>
         </aside>
 
-        <section className="relative flex-1 overflow-hidden p-6 lg:p-10">
+        <section className="relative flex-1 overflow-hidden p-4 pb-28 sm:p-6 lg:p-10">
           <div className="absolute -right-40 -top-40 h-96 w-96 rounded-full bg-fuchsia-600/20 blur-3xl" />
           <div className="absolute left-1/3 top-72 h-96 w-96 rounded-full bg-blue-500/10 blur-3xl" />
 
-          <div className="relative mb-8 flex items-center justify-between">
+          <div className="relative mb-8 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-medium text-fuchsia-300">
                 Scholarships
               </p>
 
-              <h2 className="mt-2 text-4xl font-bold tracking-tight lg:text-6xl">
+              <h2 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl lg:text-6xl">
                 Fund your journey.
               </h2>
 
@@ -96,7 +97,7 @@ export default async function ScholarshipsPage() {
             <LogoutButton />
           </div>
 
-          <div className="relative mb-8 rounded-[2.5rem] border border-white/10 bg-gradient-to-br from-white/[0.1] via-white/[0.04] to-white/[0.02] p-6 shadow-[0_0_90px_rgba(168,85,247,0.16)] backdrop-blur-2xl lg:p-8">
+          <div className="relative mb-8 rounded-[2.5rem] border border-white/10 bg-gradient-to-br from-white/[0.1] via-white/[0.04] to-white/[0.02] p-5 shadow-[0_0_90px_rgba(168,85,247,0.16)] backdrop-blur-2xl sm:p-6 lg:p-8">
             <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
               <div>
                 <div className="mb-5 inline-flex rounded-full border border-fuchsia-400/20 bg-fuchsia-500/10 px-4 py-2 text-xs font-medium text-fuchsia-200">
@@ -180,7 +181,7 @@ export default async function ScholarshipsPage() {
           </div>
 
           <div className="relative grid gap-8 lg:grid-cols-[1.4fr_0.8fr]">
-            <div className="rounded-[2.5rem] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
+            <div className="rounded-[2.5rem] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl sm:p-6">
               <div className="mb-6">
                 <h3 className="text-2xl font-semibold">
                   Scholarship matches
@@ -235,24 +236,25 @@ export default async function ScholarshipsPage() {
                       ))}
                     </div>
 
-                    <button
-                      className={`mt-6 w-full rounded-2xl px-5 py-4 text-sm font-semibold transition ${
+                    <a
+                      href={scholarship.website_url || "#"}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`mt-6 block w-full rounded-2xl px-5 py-4 text-center text-sm font-semibold transition ${
                         trackedIds.includes(scholarship.id)
                           ? "border border-emerald-400/20 bg-emerald-500/20 text-emerald-200"
                           : "bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500 text-white shadow-lg shadow-fuchsia-500/20 hover:scale-[1.01]"
                       }`}
                     >
-                      {trackedIds.includes(scholarship.id)
-                        ? "Tracking scholarship"
-                        : "Track scholarship"}
-                    </button>
+                      Open scholarship site
+                    </a>
                   </div>
                 ))}
               </div>
             </div>
 
             <div className="space-y-6">
-              <div className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-fuchsia-500/15 to-blue-500/10 p-6 backdrop-blur-xl">
+              <div className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-fuchsia-500/15 to-blue-500/10 p-5 backdrop-blur-xl sm:p-6">
                 <h3 className="text-xl font-semibold">CSS Profile Center</h3>
 
                 <p className="mt-2 text-sm leading-relaxed text-white/50">
@@ -278,7 +280,7 @@ export default async function ScholarshipsPage() {
                       key={String(item)}
                       className="rounded-2xl border border-white/10 bg-black/25 p-4"
                     >
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-4">
                         <p className="text-sm font-medium">{item}</p>
                         <span className="text-xs text-orange-300">
                           {status}
@@ -288,12 +290,17 @@ export default async function ScholarshipsPage() {
                   ))}
                 </div>
 
-                <button className="mt-5 w-full rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/90">
-                  Start CSS Profile prep
-                </button>
+                <a
+                  href="https://cssprofile.collegeboard.org/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-5 block w-full rounded-2xl bg-white px-5 py-3 text-center text-sm font-semibold text-black transition hover:bg-white/90"
+                >
+                  Open CSS Profile
+                </a>
               </div>
 
-              <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
+              <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl sm:p-6">
                 <h3 className="text-xl font-semibold">
                   Net Price Calculator
                 </h3>
@@ -365,7 +372,7 @@ export default async function ScholarshipsPage() {
                 </button>
               </div>
 
-              <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
+              <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl sm:p-6">
                 <h3 className="text-xl font-semibold">
                   Scholarship calendar
                 </h3>
@@ -389,7 +396,7 @@ export default async function ScholarshipsPage() {
                 </div>
               </div>
 
-              <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
+              <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl sm:p-6">
                 <h3 className="text-xl font-semibold">Best funding routes</h3>
 
                 <div className="mt-5 space-y-3">
@@ -413,6 +420,8 @@ export default async function ScholarshipsPage() {
           </div>
         </section>
       </div>
+
+      <MobileNav />
     </main>
   );
 }
@@ -421,7 +430,7 @@ function Info({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
       <p className="text-xs text-white/35">{label}</p>
-      <p className="mt-2 text-sm text-white/75">{value}</p>
+      <p className="mt-2 text-sm text-white/75">{value || "Not set"}</p>
     </div>
   );
 }
