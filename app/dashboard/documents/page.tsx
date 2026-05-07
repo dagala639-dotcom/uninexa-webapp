@@ -30,6 +30,7 @@ export default function DocumentsPage() {
 
   const [documents, setDocuments] = useState<any[]>([]);
   const [uploading, setUploading] = useState("");
+  const [deleting, setDeleting] = useState("");
   const [message, setMessage] = useState("");
 
   const loadDocuments = useCallback(async () => {
@@ -98,6 +99,12 @@ export default function DocumentsPage() {
       (doc) => doc.document_type === documentType
     );
 
+    if (existing?.file_path) {
+      await supabase.storage
+        .from("student-documents")
+        .remove([existing.file_path]);
+    }
+
     const payload = {
       user_id: user.id,
       document_type: documentType,
@@ -125,18 +132,57 @@ export default function DocumentsPage() {
     e.target.value = "";
   }
 
+  async function deleteDocument(document: any) {
+    const confirmed = window.confirm(`Delete ${document.document_type}?`);
+    if (!confirmed) return;
+
+    setDeleting(document.id);
+    setMessage("");
+
+    if (document.file_path) {
+      const { error: storageError } = await supabase.storage
+        .from("student-documents")
+        .remove([document.file_path]);
+
+      if (storageError) {
+        setMessage(storageError.message);
+        setDeleting("");
+        return;
+      }
+    }
+
+    const { error: dbError } = await supabase
+      .from("documents")
+      .delete()
+      .eq("id", document.id);
+
+    if (dbError) {
+      setMessage(dbError.message);
+      setDeleting("");
+      return;
+    }
+
+    await loadDocuments();
+
+    setMessage(`${document.document_type} deleted.`);
+    setDeleting("");
+  }
+
   function getDocument(documentType: string) {
     return documents.find((doc) => doc.document_type === documentType);
   }
 
   function getKcseProgress(stage?: string) {
-    if (!stage) return "w-0";
+    const cleanStage = stage?.trim().toLowerCase();
 
-    const index = kcseStages.indexOf(stage);
-    if (index === -1) return "w-0";
+    if (!cleanStage) return "w-0";
+    if (cleanStage === "uploaded") return "w-[20%]";
+    if (cleanStage === "under review") return "w-[40%]";
+    if (cleanStage === "sent to knec") return "w-[60%]";
+    if (cleanStage === "pending knec approval") return "w-[80%]";
+    if (cleanStage === "verified") return "w-full";
 
-    const widths = ["w-[20%]", "w-[40%]", "w-[60%]", "w-[80%]", "w-full"];
-    return widths[index];
+    return "w-0";
   }
 
   return (
@@ -147,7 +193,6 @@ export default function DocumentsPage() {
             <h1 className="bg-gradient-to-r from-fuchsia-400 via-purple-300 to-blue-400 bg-clip-text text-xl font-bold uppercase tracking-[0.35em] text-transparent">
               UniNexa
             </h1>
-
             <p className="mt-2 text-sm text-white/40">Student Portal</p>
           </div>
 
@@ -183,14 +228,10 @@ export default function DocumentsPage() {
 
           <div className="relative mb-8 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-medium text-fuchsia-300">
-                Documents
-              </p>
-
+              <p className="text-sm font-medium text-fuchsia-300">Documents</p>
               <h2 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl lg:text-6xl">
                 Upload your documents.
               </h2>
-
               <p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/50">
                 Securely upload student documents, track verification progress,
                 and monitor KCSE approval status.
@@ -336,35 +377,32 @@ export default function DocumentsPage() {
                       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex items-center gap-3">
                           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/20">
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              className="h-5 w-5 text-emerald-300"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              stroke="currentColor"
-                              strokeWidth={2}
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M5 13l4 4L19 7"
-                              />
-                            </svg>
+                            ✓
                           </div>
 
                           <div>
                             <p className="text-sm font-semibold text-emerald-200">
                               Document uploaded successfully
                             </p>
-
                             <p className="mt-1 text-xs text-white/40">
                               Securely stored in UniNexa cloud storage
                             </p>
                           </div>
                         </div>
 
-                        <div className="rounded-full border border-emerald-400/20 bg-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-300">
-                          Uploaded
+                        <div className="flex items-center gap-2">
+                          <div className="rounded-full border border-emerald-400/20 bg-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-300">
+                            Uploaded
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => deleteDocument(document)}
+                            disabled={deleting === document.id}
+                            className="flex h-8 w-8 items-center justify-center rounded-full border border-red-400/20 bg-red-500/10 text-sm font-bold text-red-300 transition hover:bg-red-500/20 disabled:opacity-50"
+                          >
+                            {deleting === document.id ? "…" : "×"}
+                          </button>
                         </div>
                       </div>
                     </div>
