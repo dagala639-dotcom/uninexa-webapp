@@ -28,7 +28,7 @@ const sections = [
   "Family",
   "Documents",
   "Recommendations",
-  "Scholarships",
+  "Billing",
   "Review & Submit",
 ];
 
@@ -128,17 +128,23 @@ export default async function ApplicationWorkspacePage({
   }
 
   const completion = [
-    true,
-    hasFields(requiredFields.general),
-    hasFields(requiredFields.academics),
-    hasFields(requiredFields.testing),
-    hasFields(requiredFields.activities),
-    hasFields(requiredFields.family),
-    hasFields(requiredFields.documents),
-    false,
-    false,
-    false,
-  ];
+  true,
+  hasFields(requiredFields.general),
+  hasFields(requiredFields.academics),
+  hasFields(requiredFields.testing),
+  hasFields(requiredFields.activities),
+  hasFields(requiredFields.family),
+  hasFields(requiredFields.documents),
+  hasFields(requiredFields.recommendations),
+  false,
+  false,
+];
+
+const completedSections = completion.filter(Boolean).length;
+
+const progress = Math.round(
+  (completedSections / completion.length) * 100
+);
 
   return (
     <main className="min-h-screen bg-[#07111f] text-white">
@@ -173,14 +179,14 @@ export default async function ApplicationWorkspacePage({
               </p>
 
               <h3 className="mt-2 text-4xl font-bold">
-                {application.progress || 10}%
+                {progress}%
               </h3>
 
               <div className="mt-5 h-3 overflow-hidden rounded-full bg-white/10">
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500"
                   style={{
-                    width: `${application.progress || 10}%`,
+                    width: `${progress}%`,
                   }}
                 />
               </div>
@@ -190,13 +196,20 @@ export default async function ApplicationWorkspacePage({
           <div className="p-5">
             <div className="space-y-2">
               {sections.map((section, index) => {
-                const href =
-                  section === "Review & Submit"
-                    ? `/dashboard/applications/${application.id}/review`
-                    : `/dashboard/applications/${application.id}/start?section=${section
-                        .toLowerCase()
-                        .replaceAll(" ", "-")
-                        .replaceAll("&", "and")}`;
+                const sectionRoutes: Record<string, string> = {
+  "Application Information": `/dashboard/applications/${application.id}`,
+  General: `/dashboard/applications/${application.id}/general`,
+  Academics: `/dashboard/applications/${application.id}/academics`,
+  Testing: `/dashboard/applications/${application.id}/testing`,
+  Activities: `/dashboard/applications/${application.id}/activities`,
+  Family: `/dashboard/applications/${application.id}/family`,
+  Documents: `/dashboard/applications/${application.id}/documents`,
+  Recommendations: `/dashboard/applications/${application.id}/recommendations`,
+  Billing: `/dashboard/applications/${application.id}/billing`,
+  "Review & Submit": `/dashboard/applications/${application.id}/review`,
+};
+
+const href = sectionRoutes[section];
 
                 return (
                   <Link
