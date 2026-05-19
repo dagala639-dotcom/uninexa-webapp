@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import LogoutButton from "../logout-button";
+import MobileNav from "../mobile-nav";
 
 const universities = [
   {
@@ -69,11 +70,26 @@ const universities = [
 ];
 
 export default function UniversitiesPage() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
+
   const [message, setMessage] = useState("");
   const [loadingUniversity, setLoadingUniversity] = useState("");
+  const [search, setSearch] = useState("");
 
-  async function addToApplications(university: (typeof universities)[number]) {
+  const filteredUniversities = universities.filter((university) => {
+    const query = search.toLowerCase();
+
+    return (
+      university.name.toLowerCase().includes(query) ||
+      university.country.toLowerCase().includes(query) ||
+      university.city.toLowerCase().includes(query) ||
+      university.programs.toLowerCase().includes(query)
+    );
+  });
+
+  async function addToApplications(
+    university: (typeof universities)[number]
+  ) {
     setMessage("");
     setLoadingUniversity(university.name);
 
@@ -87,14 +103,31 @@ export default function UniversitiesPage() {
       return;
     }
 
+    const { data: existingApplication } = await supabase
+      .from("applications")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("university_name", university.name)
+      .maybeSingle();
+
+    if (existingApplication) {
+      setMessage(`${university.name} is already in your Applications.`);
+      setLoadingUniversity("");
+      return;
+    }
+
     const { error } = await supabase.from("applications").insert({
       user_id: user.id,
       university_name: university.name,
       country: university.country,
+      city: university.city,
+      application_type: "Undergraduate",
       program: "Undecided",
       deadline: university.deadline,
       status: "In progress",
-      progress: 10,
+      progress: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     });
 
     setLoadingUniversity("");
@@ -104,7 +137,7 @@ export default function UniversitiesPage() {
       return;
     }
 
-    setMessage(`${university.name} added to Applications.`);
+    setMessage(`${university.name} added to Applications successfully.`);
   }
 
   return (
@@ -115,6 +148,7 @@ export default function UniversitiesPage() {
             <h1 className="bg-gradient-to-r from-fuchsia-400 via-purple-300 to-blue-400 bg-clip-text text-xl font-bold uppercase tracking-[0.35em] text-transparent">
               UniNexa
             </h1>
+
             <p className="mt-2 text-sm text-white/40">Student Portal</p>
           </div>
 
@@ -126,6 +160,7 @@ export default function UniversitiesPage() {
               ["Universities", "/dashboard/universities"],
               ["Documents", "/dashboard/documents"],
               ["Scholarships", "/dashboard/scholarships"],
+              ["Scholarship Guide", "/dashboard/scholarship-guide"],
               ["Messages", "/dashboard/messages"],
               ["Settings", "/dashboard/settings"],
             ].map(([name, href]) => (
@@ -144,18 +179,20 @@ export default function UniversitiesPage() {
           </nav>
         </aside>
 
-        <section className="relative flex-1 overflow-hidden p-6 lg:p-10">
+        <section className="relative flex-1 overflow-hidden p-6 pb-28 lg:p-10">
           <div className="absolute -right-40 -top-40 h-96 w-96 rounded-full bg-fuchsia-600/20 blur-3xl" />
           <div className="absolute left-1/3 top-60 h-96 w-96 rounded-full bg-blue-500/10 blur-3xl" />
 
-          <div className="relative mb-8 flex items-center justify-between">
+          <div className="relative mb-8 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-medium text-fuchsia-300">
                 Universities
               </p>
+
               <h2 className="mt-2 text-4xl font-bold tracking-tight lg:text-6xl">
                 Add universities.
               </h2>
+
               <p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/50">
                 Build your study-abroad application list and send universities
                 directly into your application tracker.
@@ -191,7 +228,7 @@ export default function UniversitiesPage() {
 
                 <div className="mt-7 grid gap-3 sm:grid-cols-3">
                   {[
-                    ["6", "Featured schools"],
+                    [String(universities.length), "Featured schools"],
                     ["6", "Countries"],
                     ["1-click", "Applications"],
                   ].map(([value, label]) => (
@@ -213,6 +250,8 @@ export default function UniversitiesPage() {
 
                 <div className="mt-4 rounded-2xl border border-white/10 bg-white/10 px-4 py-4">
                   <input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search by university, country, or program..."
                     className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/30"
                   />
@@ -225,7 +264,10 @@ export default function UniversitiesPage() {
                         key={country}
                         className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3"
                       >
-                        <span className="text-sm text-white/70">{country}</span>
+                        <span className="text-sm text-white/70">
+                          {country}
+                        </span>
+
                         <span className="text-xs text-fuchsia-300">
                           Available
                         </span>
@@ -243,6 +285,7 @@ export default function UniversitiesPage() {
                 <h3 className="text-2xl font-semibold">
                   Available universities
                 </h3>
+
                 <p className="mt-2 text-sm text-white/40">
                   Select a university and add it to your Applications page.
                 </p>
@@ -257,7 +300,7 @@ export default function UniversitiesPage() {
             </div>
 
             <div className="grid gap-5 xl:grid-cols-2">
-              {universities.map((university) => (
+              {filteredUniversities.map((university) => (
                 <div
                   key={university.name}
                   className="group rounded-[2rem] border border-white/10 bg-gradient-to-br from-black/30 to-white/[0.03] p-5 transition hover:-translate-y-1 hover:border-fuchsia-400/30 hover:bg-white/[0.07] hover:shadow-[0_0_50px_rgba(217,70,239,0.12)]"
@@ -272,9 +315,11 @@ export default function UniversitiesPage() {
                         <p className="text-xs font-semibold uppercase tracking-[0.25em] text-fuchsia-300">
                           {university.country}
                         </p>
+
                         <h4 className="mt-2 text-xl font-semibold">
                           {university.name}
                         </h4>
+
                         <p className="mt-1 text-sm text-white/40">
                           {university.city}
                         </p>
@@ -287,30 +332,14 @@ export default function UniversitiesPage() {
                   </div>
 
                   <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                      <p className="text-xs text-white/35">Programs</p>
-                      <p className="mt-2 line-clamp-2 text-sm text-white/75">
-                        {university.programs}
-                      </p>
-                    </div>
-
-                    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                      <p className="text-xs text-white/35">Deadline</p>
-                      <p className="mt-2 text-sm text-white/75">
-                        {university.deadline}
-                      </p>
-                    </div>
-
-                    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                      <p className="text-xs text-white/35">Tuition</p>
-                      <p className="mt-2 text-sm text-white/75">
-                        {university.fee}
-                      </p>
-                    </div>
+                    <Info label="Programs" value={university.programs} />
+                    <Info label="Deadline" value={university.deadline} />
+                    <Info label="Tuition" value={university.fee} />
                   </div>
 
                   <div className="mt-6 flex flex-col gap-3 sm:flex-row">
                     <button
+                      type="button"
                       onClick={() => addToApplications(university)}
                       disabled={loadingUniversity === university.name}
                       className="flex-1 rounded-2xl bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500 px-5 py-4 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/20 transition hover:scale-[1.01] disabled:opacity-50"
@@ -320,16 +349,42 @@ export default function UniversitiesPage() {
                         : "Add to Applications"}
                     </button>
 
-                    <button className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-sm font-semibold text-white/70 transition hover:bg-white/10">
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-sm font-semibold text-white/70 transition hover:bg-white/10"
+                    >
                       View details
                     </button>
                   </div>
                 </div>
               ))}
+
+              {filteredUniversities.length === 0 && (
+                <div className="rounded-[2rem] border border-white/10 bg-black/20 p-6 text-white/60 xl:col-span-2">
+                  No universities match your search.
+                </div>
+              )}
             </div>
           </div>
         </section>
       </div>
+
+      <MobileNav />
     </main>
+  );
+}
+
+function Info({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+      <p className="text-xs text-white/35">{label}</p>
+      <p className="mt-2 line-clamp-2 text-sm text-white/75">{value}</p>
+    </div>
   );
 }

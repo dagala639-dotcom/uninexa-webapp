@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 export default function SignupPage() {
+  const router = useRouter();
   const supabase = createClient();
 
   const [error, setError] = useState("");
@@ -27,13 +29,27 @@ export default function SignupPage() {
     const town = String(formData.get("town") || "");
     const address = String(formData.get("address") || "");
 
-    const dataConsent = formData.get("dataConsent");
-    const termsConsent = formData.get("termsConsent");
-    const communicationConsent = formData.get("communicationConsent");
-    const guardianConsent = formData.get("guardianConsent");
+    const dataConsent = Boolean(formData.get("dataConsent"));
+    const termsConsent = Boolean(formData.get("termsConsent"));
+    const communicationConsent = Boolean(
+      formData.get("communicationConsent")
+    );
+    const guardianConsent = Boolean(formData.get("guardianConsent"));
+
+    if (!fullName) {
+      setError("Full name is required.");
+      setLoading(false);
+      return;
+    }
 
     if (email !== confirmEmail) {
       setError("Email addresses do not match.");
+      setLoading(false);
+      return;
+    }
+
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
       setLoading(false);
       return;
     }
@@ -45,12 +61,14 @@ export default function SignupPage() {
     }
 
     if (!termsConsent || !dataConsent) {
-      setError("You must agree to the Terms of Use and data processing consent.");
+      setError(
+        "You must agree to the Terms of Use and data processing consent."
+      );
       setLoading(false);
       return;
     }
 
-    const { error } = await supabase.auth.signUp({
+    const { data, error: signupError } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -63,22 +81,60 @@ export default function SignupPage() {
           county,
           town,
           address,
-          data_consent: Boolean(dataConsent),
-          terms_consent: Boolean(termsConsent),
-          communication_consent: Boolean(communicationConsent),
-          guardian_consent: Boolean(guardianConsent),
+          data_consent: dataConsent,
+          terms_consent: termsConsent,
+          communication_consent: communicationConsent,
+          guardian_consent: guardianConsent,
           privacy_framework: "Kenya Data Protection Act, 2019",
         },
       },
     });
 
-    if (error) {
-      setError(error.message);
+    if (signupError) {
+      setError(signupError.message);
       setLoading(false);
       return;
     }
 
-    window.location.href = "/dashboard";
+    const user = data.user;
+
+    if (user) {
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .upsert(
+          {
+            user_id: user.id,
+            full_name: fullName,
+            email,
+            student_type: studentType,
+            date_of_birth: dateOfBirth,
+            phone,
+            country: "Kenya",
+            county,
+            town,
+            address,
+            data_consent: dataConsent,
+            terms_consent: termsConsent,
+            communication_consent: communicationConsent,
+            guardian_consent: guardianConsent,
+            privacy_framework: "Kenya Data Protection Act, 2019",
+            updated_at: new Date().toISOString(),
+          },
+          {
+            onConflict: "user_id",
+          }
+        );
+
+      if (profileError) {
+        setError(profileError.message);
+        setLoading(false);
+        return;
+      }
+    }
+
+    setLoading(false);
+    router.push("/dashboard");
+    router.refresh();
   }
 
   return (
@@ -100,17 +156,46 @@ export default function SignupPage() {
           </h1>
 
           <p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/50">
-            Build your Kenyan student profile, organize your documents, and start
-            your international university application journey.
+            Build your Kenyan student profile, organize your documents, and
+            start your international university application journey.
           </p>
         </div>
 
         <form action={handleSignup} className="space-y-10">
           <Section title="Account information">
-            <Input name="email" label="Email address" type="email" placeholder="you@example.com" required />
-            <Input name="confirmEmail" label="Re-type email address" type="email" placeholder="you@example.com" required />
-            <Input name="password" label="Password" type="password" placeholder="••••••••" required />
-            <Input name="confirmPassword" label="Re-type password" type="password" placeholder="••••••••" required />
+            <Input
+              name="email"
+              label="Email address"
+              type="email"
+              placeholder="you@example.com"
+              required
+            />
+
+            <Input
+              name="confirmEmail"
+              label="Re-type email address"
+              type="email"
+              placeholder="you@example.com"
+              required
+            />
+
+            <Input
+              name="password"
+              label="Password"
+              type="password"
+              placeholder="••••••••"
+              required
+              minLength={6}
+            />
+
+            <Input
+              name="confirmPassword"
+              label="Re-type password"
+              type="password"
+              placeholder="••••••••"
+              required
+              minLength={6}
+            />
           </Section>
 
           <Section title="Student pathway">
@@ -129,34 +214,69 @@ export default function SignupPage() {
           </Section>
 
           <Section title="Personal information">
-            <Input name="fullName" label="Full legal name" placeholder="Abednego Dagala" required />
-            <Input name="dateOfBirth" label="Date of birth" type="date" required />
+            <Input
+              name="fullName"
+              label="Full legal name"
+              placeholder="John Doe"
+              required
+            />
+
+            <Input
+              name="dateOfBirth"
+              label="Date of birth"
+              type="date"
+              required
+            />
           </Section>
 
           <Section title="Contact details">
-            <Input name="phone" label="Phone number" placeholder="+2547..." required />
-            <Input name="county" label="County" placeholder="Nakuru" required />
-            <Input name="town" label="Town" placeholder="Naivasha" />
-            <Input name="address" label="Permanent home address" placeholder="Estate, road, or location" />
+            <Input
+              name="phone"
+              label="Phone number"
+              placeholder="+2547..."
+              required
+            />
+
+            <Input
+              name="county"
+              label="County"
+              placeholder="Nakuru"
+              required
+            />
+
+            <Input
+              name="town"
+              label="Town"
+              placeholder="Naivasha"
+            />
+
+            <Input
+              name="address"
+              label="Permanent home address"
+              placeholder="Estate, road, or location"
+            />
           </Section>
 
           <div className="rounded-[2rem] border border-white/10 bg-black/20 p-5 sm:p-6">
-            <h2 className="text-xl font-semibold">Privacy policy and preferences</h2>
+            <h2 className="text-xl font-semibold">
+              Privacy policy and preferences
+            </h2>
 
             <p className="mt-4 text-sm leading-7 text-white/60">
-              By creating an account, you agree that UniNexa may collect and process
-              your personal, academic, contact, document, and application information
-              for purposes of creating your student profile, supporting study-abroad
-              applications, verifying documents, matching you with universities and
-              scholarships, and communicating with you about your applications.
+              By creating an account, you agree that UniNexa may collect and
+              process your personal, academic, contact, document, and
+              application information for purposes of creating your student
+              profile, supporting study-abroad applications, verifying
+              documents, matching you with universities and scholarships, and
+              communicating with you about your applications.
             </p>
 
             <p className="mt-4 text-sm leading-7 text-white/60">
-              UniNexa processes personal data in line with the Kenya Data Protection
-              Act, 2019, the Data Protection General Regulations, 2021, and applicable
-              international admissions requirements. You may request access,
-              correction, deletion, or limitation of your personal data by contacting
-              UniNexa.
+              UniNexa processes personal data in line with the Kenya Data
+              Protection Act, 2019, the Data Protection General Regulations,
+              2021, and applicable international admissions requirements. You
+              may request access, correction, deletion, or limitation of your
+              personal data by contacting UniNexa.
             </p>
 
             <div className="mt-6 space-y-4">
@@ -223,7 +343,10 @@ function Section({
   return (
     <section className="rounded-[2rem] border border-white/10 bg-black/20 p-5 sm:p-6">
       <h2 className="mb-5 text-xl font-semibold">{title}</h2>
-      <div className="grid gap-5 md:grid-cols-2">{children}</div>
+
+      <div className="grid gap-5 md:grid-cols-2">
+        {children}
+      </div>
     </section>
   );
 }
@@ -239,6 +362,7 @@ function Input({
       <label className="mb-2 block text-sm font-medium text-white/70">
         {label}
       </label>
+
       <input
         {...props}
         className="w-full rounded-2xl border border-white/10 bg-white/10 px-5 py-4 text-white outline-none transition-all placeholder:text-white/30 focus:border-fuchsia-400/50 focus:bg-white/[0.14]"
@@ -268,8 +392,13 @@ function Select({
         <option value="" className="bg-[#070B14]">
           Select option
         </option>
+
         {options.map((option) => (
-          <option key={option} value={option} className="bg-[#070B14]">
+          <option
+            key={option}
+            value={option}
+            className="bg-[#070B14]"
+          >
             {option}
           </option>
         ))}
@@ -291,6 +420,7 @@ function Checkbox({
         type="checkbox"
         className="mt-1 h-4 w-4 rounded border-white/20 bg-white/10 accent-fuchsia-500"
       />
+
       <span>{label}</span>
     </label>
   );

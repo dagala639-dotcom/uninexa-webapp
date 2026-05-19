@@ -4,9 +4,11 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { updateApplicationProgress } from "../update-progress";
 
+type DocumentsAnswers = Record<string, string>;
+
 export async function saveDocumentsDraft(
   applicationId: string,
-  formData: FormData
+  data: DocumentsAnswers | FormData
 ) {
   const supabase = await createClient();
 
@@ -16,10 +18,16 @@ export async function saveDocumentsDraft(
 
   if (!user) redirect("/login");
 
-  const answers: Record<string, string> = {};
+  const answers: DocumentsAnswers = {};
 
-  for (const [key, value] of formData.entries()) {
-    answers[key] = String(value);
+  if (data instanceof FormData) {
+    for (const [key, value] of data.entries()) {
+      answers[key] = String(value);
+    }
+  } else {
+    Object.entries(data).forEach(([key, value]) => {
+      answers[key] = String(value ?? "");
+    });
   }
 
   const { data: existing } = await supabase
@@ -31,22 +39,34 @@ export async function saveDocumentsDraft(
     .maybeSingle();
 
   if (existing) {
-    await supabase
+    const { error } = await supabase
       .from("application_forms")
       .update({
         answers,
         updated_at: new Date().toISOString(),
       })
       .eq("id", existing.id);
+
+    if (error) {
+      throw new Error(error.message);
+    }
   } else {
-    await supabase.from("application_forms").insert({
+    const { error } = await supabase.from("application_forms").insert({
       application_id: applicationId,
       user_id: user.id,
       section: "documents",
       answers,
+      updated_at: new Date().toISOString(),
     });
+
+    if (error) {
+      throw new Error(error.message);
+    }
   }
 
   await updateApplicationProgress(applicationId, user.id);
-  redirect(`/dashboard/applications/${applicationId}/documents?saved=1`);
+
+  return {
+    success: true,
+  };
 }

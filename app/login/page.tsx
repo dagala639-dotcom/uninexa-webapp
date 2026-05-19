@@ -1,23 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [error, setError] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
   const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
 
-  async function handleLogin(formData: FormData) {
-    setError("");
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+
     setLoading(true);
-
-    const email = String(formData.get("email"));
-    const password = String(formData.get("password"));
+    setMessage("");
 
     const { error } = await supabase.auth.signInWithPassword({
       email,
@@ -25,7 +27,7 @@ export default function LoginPage() {
     });
 
     if (error) {
-      setError(error.message);
+      setMessage(error.message);
       setLoading(false);
       return;
     }
@@ -35,94 +37,146 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#070B14] px-6 text-white">
-      {/* Background glow */}
-      <div className="absolute -left-40 top-0 h-96 w-96 rounded-full bg-fuchsia-600/20 blur-3xl" />
-      <div className="absolute right-0 top-20 h-[30rem] w-[30rem] rounded-full bg-blue-500/10 blur-3xl" />
-      <div className="absolute bottom-0 left-1/3 h-80 w-80 rounded-full bg-purple-500/20 blur-3xl" />
+    <main className="relative flex min-h-screen overflow-hidden bg-[#050816] text-white">
+      <div className="absolute -left-20 top-0 h-[28rem] w-[28rem] rounded-full bg-fuchsia-600/20 blur-3xl" />
+      <div className="absolute bottom-0 right-0 h-[28rem] w-[28rem] rounded-full bg-blue-600/20 blur-3xl" />
 
-      {/* Card */}
-      <div className="relative w-full max-w-md rounded-[2.5rem] border border-white/10 bg-white/[0.05] p-8 shadow-[0_0_60px_rgba(168,85,247,0.15)] backdrop-blur-2xl">
-        {/* Brand */}
-        <div className="mb-8">
-          <span className="bg-gradient-to-r from-fuchsia-400 via-purple-300 to-blue-400 bg-clip-text text-lg font-semibold uppercase tracking-[0.35em] text-transparent">
+      <section className="relative hidden w-1/2 flex-col justify-between border-r border-white/10 bg-white/[0.03] p-10 backdrop-blur-2xl lg:flex">
+        <div>
+          <h1 className="bg-gradient-to-r from-fuchsia-400 via-purple-300 to-blue-400 bg-clip-text text-3xl font-black uppercase tracking-[0.35em] text-transparent">
             UniNexa
-          </span>
-        </div>
-
-        {/* Heading */}
-        <div className="mb-8">
-          <h1 className="text-5xl font-bold leading-tight tracking-tight">
-            Welcome
-            <br />
-            back.
           </h1>
 
-          <p className="mt-4 text-sm leading-relaxed text-white/50">
-            Continue your global education journey with UniNexa.
+          <p className="mt-3 text-sm text-white/40">
+            Global Student Portal
           </p>
         </div>
 
-        {/* Form */}
-        <form action={handleLogin} className="space-y-5">
-          {/* Email */}
-          <div>
-            <label className="mb-2 block text-sm font-medium text-white/70">
-              Email address
-            </label>
-
-            <input
-              name="email"
-              type="email"
-              required
-              placeholder="you@example.com"
-              className="w-full rounded-2xl border border-white/10 bg-white/10 px-5 py-4 text-white outline-none transition-all placeholder:text-white/30 focus:border-fuchsia-400/50 focus:bg-white/[0.14]"
-            />
+        <div>
+          <div className="inline-flex rounded-full border border-fuchsia-400/20 bg-fuchsia-500/10 px-4 py-2 text-xs font-medium text-fuchsia-200">
+            Premium admissions workspace
           </div>
 
-          {/* Password */}
-          <div>
-            <label className="mb-2 block text-sm font-medium text-white/70">
-              Password
-            </label>
+          <h2 className="mt-6 text-5xl font-bold leading-tight">
+            Study abroad.
+            <br />
+            Smarter.
+          </h2>
 
-            <input
-              name="password"
-              type="password"
-              required
-              placeholder="••••••••"
-              className="w-full rounded-2xl border border-white/10 bg-white/10 px-5 py-4 text-white outline-none transition-all placeholder:text-white/30 focus:border-fuchsia-400/50 focus:bg-white/[0.14]"
-            />
+          <p className="mt-6 max-w-xl text-base leading-relaxed text-white/50">
+            UniNexa helps Kenyan students organize profiles, applications,
+            scholarships, documents, and admissions support in one powerful
+            platform.
+          </p>
+
+          <div className="mt-10 grid gap-4 sm:grid-cols-3">
+            {[
+              ["Universities", "Global matching"],
+              ["Scholarships", "Funding routes"],
+              ["Applications", "One dashboard"],
+            ].map(([title, subtitle]) => (
+              <div
+                key={title}
+                className="rounded-3xl border border-white/10 bg-black/20 p-5"
+              >
+                <p className="text-lg font-semibold">{title}</p>
+                <p className="mt-2 text-sm text-white/40">{subtitle}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="text-xs text-white/30">
+          © 2026 UniNexa. All rights reserved.
+        </div>
+      </section>
+
+      <section className="relative flex flex-1 items-center justify-center p-6 sm:p-10">
+        <div className="w-full max-w-xl rounded-[2.5rem] border border-white/10 bg-white/[0.05] p-6 shadow-[0_0_90px_rgba(168,85,247,0.12)] backdrop-blur-2xl sm:p-8">
+          <div className="mb-8">
+            <div className="mb-5 inline-flex rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-medium text-white/60">
+              Welcome back
+            </div>
+
+            <h2 className="text-4xl font-bold tracking-tight">
+              Login to UniNexa
+            </h2>
+
+            <p className="mt-3 text-sm leading-relaxed text-white/45">
+              Continue your applications, documents, scholarships, and student
+              journey.
+            </p>
           </div>
 
-          {/* Error */}
-          {error && (
-            <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-              {error}
+          {message && (
+            <div className="mb-6 rounded-2xl border border-red-400/20 bg-red-500/10 px-5 py-4 text-sm text-red-200">
+              {message}
             </div>
           )}
 
-          {/* Button */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-2xl bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500 px-5 py-4 font-semibold text-white shadow-lg shadow-fuchsia-500/20 transition-all hover:scale-[1.01] hover:shadow-fuchsia-500/40 disabled:opacity-50"
-          >
-            {loading ? "Logging in..." : "Log in"}
-          </button>
-        </form>
+          <form onSubmit={handleLogin} className="space-y-5">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-white/70">
+                Email address
+              </label>
 
-        {/* Footer */}
-        <p className="mt-8 text-center text-sm text-white/50">
-          Don&apos;t have an account?{" "}
-          <Link
-            href="/signup"
-            className="font-medium text-fuchsia-300 transition hover:text-fuchsia-200"
-          >
-            Sign up
-          </Link>
-        </p>
-      </div>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="student@email.com"
+                className="w-full rounded-2xl border border-white/10 bg-white/10 px-5 py-4 text-white outline-none transition placeholder:text-white/30 focus:border-fuchsia-400/50 focus:bg-white/[0.14]"
+              />
+            </div>
+
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <label className="text-sm font-medium text-white/70">
+                  Password
+                </label>
+
+                <Link
+                  href="/forgot-password"
+                  className="text-xs text-fuchsia-300 hover:text-fuchsia-200"
+                >
+                  Forgot password?
+                </Link>
+              </div>
+
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter your password"
+                className="w-full rounded-2xl border border-white/10 bg-white/10 px-5 py-4 text-white outline-none transition placeholder:text-white/30 focus:border-fuchsia-400/50 focus:bg-white/[0.14]"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded-2xl bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500 px-6 py-4 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/20 transition hover:scale-[1.01] disabled:opacity-50"
+            >
+              {loading ? "Signing in..." : "Login"}
+            </button>
+          </form>
+
+          <div className="mt-8 rounded-2xl border border-white/10 bg-black/20 p-5">
+            <p className="text-sm text-white/45">
+              Don&apos;t have an account?
+            </p>
+
+            <Link
+              href="/signup"
+              className="mt-3 inline-block text-sm font-semibold text-fuchsia-300 hover:text-fuchsia-200"
+            >
+              Create UniNexa account →
+            </Link>
+          </div>
+        </div>
+      </section>
     </main>
   );
 }

@@ -1,21 +1,18 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CheckCircle2 } from "lucide-react";
+
 import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "../../../logout-button";
 import MobileNav from "../../../mobile-nav";
 import { getUniversityQuestions } from "../university-questions";
-import { saveTestingDraft } from "./actions";
+import TestingForm from "./testing-form";
 
 export default async function TestingPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ saved?: string }>;
 }) {
   const { id } = await params;
-  const saved = (await searchParams)?.saved;
 
   const supabase = await createClient();
 
@@ -48,15 +45,19 @@ export default async function TestingPage({
     .eq("section", "testing")
     .maybeSingle();
 
-  const questions = getUniversityQuestions(application.university_name).testing;
+  const questions =
+    getUniversityQuestions(application.university_name).testing;
+
   const answers = draft?.answers || {};
-  const saveDraft = saveTestingDraft.bind(null, id);
 
   return (
     <main className="min-h-screen bg-[#07111f] text-white">
       <div className="flex min-h-screen">
         <aside className="hidden w-[320px] shrink-0 border-r border-white/10 bg-[#0A0F1D] p-5 lg:block">
-          <Link href="/dashboard/applications" className="text-sm text-fuchsia-300">
+          <Link
+            href="/dashboard/applications"
+            className="text-sm text-fuchsia-300"
+          >
             ← Back to applications
           </Link>
 
@@ -64,9 +65,11 @@ export default async function TestingPage({
             <p className="text-xs uppercase tracking-[0.25em] text-fuchsia-300">
               Apply to
             </p>
+
             <h1 className="mt-3 text-2xl font-bold">
               {application.university_name}
             </h1>
+
             <p className="mt-2 text-sm text-white/45">
               {application.country || "Country not set"}
             </p>
@@ -81,8 +84,11 @@ export default async function TestingPage({
               ["Activities", `/dashboard/applications/${id}/activities`],
               ["Family", `/dashboard/applications/${id}/family`],
               ["Documents", `/dashboard/applications/${id}/documents`],
-              ["Recommendations", `/dashboard/applications/${id}/recommendations`],
-              ["Scholarships", `/dashboard/applications/${id}/scholarships`],
+              [
+                "Recommendations",
+                `/dashboard/applications/${id}/recommendations`,
+              ],
+              ["Billing", `/dashboard/applications/${id}/billing`],
               ["Review & Submit", `/dashboard/applications/${id}/review`],
             ].map(([name, href]) => (
               <Link
@@ -103,7 +109,9 @@ export default async function TestingPage({
         <section className="flex-1 p-4 pb-28 sm:p-6 lg:p-8">
           <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-medium text-fuchsia-300">Testing</p>
+              <p className="text-sm font-medium text-fuchsia-300">
+                Testing
+              </p>
 
               <h2 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl">
                 Testing information
@@ -111,153 +119,25 @@ export default async function TestingPage({
 
               <p className="mt-3 max-w-2xl text-sm text-white/50">
                 Add English proficiency, SAT/ACT, and test-optional information
-                required by {application.university_name}.
+                required by {application.university_name}. Your answers save
+                automatically.
               </p>
             </div>
 
             <LogoutButton />
           </div>
 
-          {saved === "1" && (
-            <div className="mb-6 flex items-center gap-3 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-sm text-emerald-200">
-              <CheckCircle2 className="h-5 w-5" />
-              Testing draft saved successfully.
-            </div>
-          )}
-
-          <form
-            action={saveDraft}
-            className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl sm:p-6"
-          >
-            <div className="grid gap-5 md:grid-cols-2">
-              {questions.map((question) => {
-                const defaultValue =
-                  answers[question.id] ||
-                  profile?.[question.id] ||
-                  application?.[question.id] ||
-                  "";
-
-                return (
-                  <Field
-                    key={question.id}
-                    id={question.id}
-                    label={question.label}
-                    type={question.type}
-                    required={question.required}
-                    options={question.options}
-                    defaultValue={defaultValue}
-                    placeholder={question.placeholder}
-                  />
-                );
-              })}
-            </div>
-
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Link
-                href={`/dashboard/applications/${id}/academics`}
-                className="rounded-2xl border border-white/10 bg-white/5 px-6 py-4 text-center text-sm font-semibold text-white/70 transition hover:bg-white/10"
-              >
-                Previous
-              </Link>
-
-              <button
-                type="submit"
-                className="rounded-2xl border border-white/10 bg-white/5 px-6 py-4 text-sm font-semibold text-white/70 transition hover:bg-white/10"
-              >
-                Save Draft
-              </button>
-
-              <Link
-                href={`/dashboard/applications/${id}/activities`}
-                className="rounded-2xl bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500 px-6 py-4 text-center text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/20 transition hover:scale-[1.01]"
-              >
-                Continue to Activities
-              </Link>
-            </div>
-          </form>
+          <TestingForm
+            applicationId={id}
+            profile={profile || {}}
+            application={application}
+            questions={questions}
+            initialAnswers={answers}
+          />
         </section>
       </div>
 
       <MobileNav />
     </main>
-  );
-}
-
-function Field({
-  id,
-  label,
-  type,
-  required,
-  options,
-  defaultValue,
-  placeholder,
-}: {
-  id: string;
-  label: string;
-  type: string;
-  required?: boolean;
-  options?: string[];
-  defaultValue?: string;
-  placeholder?: string;
-}) {
-  return (
-    <div className={type === "textarea" ? "md:col-span-2" : ""}>
-      <label className="mb-2 block text-sm font-medium text-white/70">
-        {label}
-        {required && <span className="ml-1 text-red-400">*</span>}
-      </label>
-
-      {type === "textarea" ? (
-        <textarea
-          name={id}
-          rows={6}
-          required={required}
-          defaultValue={defaultValue}
-          placeholder={placeholder || label}
-          className="w-full rounded-2xl border border-white/10 bg-white/10 px-5 py-4 text-white outline-none placeholder:text-white/30 focus:border-fuchsia-400/50 focus:bg-white/[0.14]"
-        />
-      ) : type === "select" ? (
-        <select
-          name={id}
-          required={required}
-          defaultValue={defaultValue || ""}
-          className="w-full rounded-2xl border border-white/10 bg-white/10 px-5 py-4 text-white outline-none focus:border-fuchsia-400/50 focus:bg-white/[0.14]"
-        >
-          <option value="" className="bg-[#070B14]">
-            Select option
-          </option>
-
-          {options?.map((option) => (
-            <option key={option} value={option} className="bg-[#070B14]">
-              {option}
-            </option>
-          ))}
-        </select>
-      ) : type === "radio" ? (
-        <div className="space-y-3 rounded-2xl border border-white/10 bg-white/10 p-4">
-          {options?.map((option) => (
-            <label key={option} className="flex items-center gap-3 text-sm text-white/70">
-              <input
-                type="radio"
-                name={id}
-                value={option}
-                required={required}
-                defaultChecked={defaultValue === option}
-              />
-              {option}
-            </label>
-          ))}
-        </div>
-      ) : (
-        <input
-          name={id}
-          type="text"
-          required={required}
-          defaultValue={defaultValue}
-          placeholder={placeholder || label}
-          className="w-full rounded-2xl border border-white/10 bg-white/10 px-5 py-4 text-white outline-none placeholder:text-white/30 focus:border-fuchsia-400/50 focus:bg-white/[0.14]"
-        />
-      )}
-    </div>
   );
 }

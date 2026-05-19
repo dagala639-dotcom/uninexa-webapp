@@ -35,15 +35,17 @@ const sectionLabels: Record<string, string> = {
   billing: "Billing",
 };
 
-async function ReviewSubmitPage({
+export default async function ReviewSubmitPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ submitted?: string }>;
+  searchParams?: Promise<{ submitted?: string; error?: string }>;
 }) {
   const { id } = await params;
-  const submitted = (await searchParams)?.submitted;
+  const query = await searchParams;
+  const submitted = query?.submitted;
+  const error = query?.error;
 
   const supabase = await createClient();
 
@@ -72,6 +74,7 @@ async function ReviewSubmitPage({
 
   function sectionComplete(section: string) {
     const form = savedSections.find((item) => item.section === section);
+
     if (!form?.answers) return false;
 
     const answers = form.answers as Record<string, string>;
@@ -88,7 +91,6 @@ async function ReviewSubmitPage({
   }));
 
   const allComplete = completion.every((item) => item.complete);
-
   const submit = submitApplication.bind(null, id);
 
   return (
@@ -125,7 +127,10 @@ async function ReviewSubmitPage({
               ["Activities", `/dashboard/applications/${id}/activities`],
               ["Family", `/dashboard/applications/${id}/family`],
               ["Documents", `/dashboard/applications/${id}/documents`],
-              ["Recommendations", `/dashboard/applications/${id}/recommendations`],
+              [
+                "Recommendations",
+                `/dashboard/applications/${id}/recommendations`,
+              ],
               ["Billing", `/dashboard/applications/${id}/billing`],
               ["Review & Submit", `/dashboard/applications/${id}/review`],
             ].map(([name, href]) => (
@@ -171,18 +176,25 @@ async function ReviewSubmitPage({
             </div>
           )}
 
+          {error === "incomplete" && (
+            <div className="mb-6 flex items-center gap-3 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4 text-sm text-amber-200">
+              <AlertCircle className="h-5 w-5" />
+              Complete all required sections before submitting.
+            </div>
+          )}
+
           <div className="grid gap-6 xl:grid-cols-[1fr_0.75fr]">
             <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl sm:p-6">
               <div className="flex items-center gap-3">
                 <FileCheck2 className="h-6 w-6 text-fuchsia-300" />
+
                 <h3 className="text-2xl font-semibold">
                   Section checklist
                 </h3>
               </div>
 
               <p className="mt-3 text-sm text-white/45">
-                A section only shows complete after you save information in that
-                section.
+                A section only shows complete after information has been saved.
               </p>
 
               <div className="mt-8 space-y-4">
@@ -209,6 +221,7 @@ async function ReviewSubmitPage({
 
                       <div>
                         <p className="font-semibold">{item.label}</p>
+
                         <p className="mt-1 text-sm text-white/40">
                           {item.complete ? "Completed" : "Needs attention"}
                         </p>
@@ -231,6 +244,7 @@ async function ReviewSubmitPage({
 
                 <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-5">
                   <p className="text-sm text-white/45">Current status</p>
+
                   <p className="mt-2 text-xl font-bold">
                     {application.status || "In progress"}
                   </p>
@@ -238,6 +252,7 @@ async function ReviewSubmitPage({
 
                 <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-5">
                   <p className="text-sm text-white/45">University</p>
+
                   <p className="mt-2 text-lg font-semibold">
                     {application.university_name}
                   </p>
@@ -245,6 +260,7 @@ async function ReviewSubmitPage({
 
                 <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-5">
                   <p className="text-sm text-white/45">Program</p>
+
                   <p className="mt-2 text-lg font-semibold">
                     {application.program || "Not selected"}
                   </p>
@@ -275,6 +291,7 @@ async function ReviewSubmitPage({
                     className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500 px-6 py-4 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/20 transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <Send className="h-4 w-4" />
+
                     {application.status === "Submitted"
                       ? "Application Submitted"
                       : "Submit Application"}
@@ -290,4 +307,3 @@ async function ReviewSubmitPage({
     </main>
   );
 }
-export default ReviewSubmitPage;

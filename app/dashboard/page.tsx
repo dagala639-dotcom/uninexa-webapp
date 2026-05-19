@@ -4,6 +4,30 @@ import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "./logout-button";
 import MobileNav from "./mobile-nav";
 
+const navItems = [
+  { name: "Dashboard", href: "/dashboard" },
+  { name: "Profile", href: "/dashboard/profile" },
+  { name: "Applications", href: "/dashboard/applications" },
+  { name: "Universities", href: "/dashboard/universities" },
+  { name: "Documents", href: "/dashboard/documents" },
+  { name: "Scholarships", href: "/dashboard/scholarships" },
+  { name: "Scholarship Guide", href: "/dashboard/scholarship-guide" },
+  { name: "Messages", href: "/dashboard/messages" },
+  { name: "Settings", href: "/dashboard/settings" },
+];
+
+const profileSections = [
+  "personal_information_completed",
+  "address_completed",
+  "contact_details_completed",
+  "demographics_completed",
+  "language_completed",
+  "family_completed",
+  "education_completed",
+  "testing_completed",
+  "activities_completed",
+];
+
 export default async function DashboardPage() {
   const supabase = await createClient();
 
@@ -11,9 +35,7 @@ export default async function DashboardPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
-    redirect("/login");
-  }
+  if (!user) redirect("/login");
 
   const fullName =
     user.user_metadata?.full_name || user.email?.split("@")[0] || "Student";
@@ -21,7 +43,8 @@ export default async function DashboardPage() {
   const { data: applications } = await supabase
     .from("applications")
     .select("*")
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .order("updated_at", { ascending: false });
 
   const { data: documents } = await supabase
     .from("documents")
@@ -33,27 +56,80 @@ export default async function DashboardPage() {
     .select("*")
     .eq("user_id", user.id);
 
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
   const applicationCount = applications?.length || 0;
   const documentCount = documents?.length || 0;
   const scholarshipCount = trackedScholarships?.length || 0;
 
-  const profileCompletion = 30;
-  const documentCompletion = Math.min(Math.round((documentCount / 6) * 100), 100);
-  const applicationReadiness = Math.min(
-    Math.round((profileCompletion + documentCompletion + applicationCount * 10) / 2),
+  const completedProfileSections = profileSections.filter(
+    (key) => profile?.[key]
+  ).length;
+
+  const profileCompletion = Math.round(
+    (completedProfileSections / profileSections.length) * 100
+  );
+
+  const documentCompletion = Math.min(
+    Math.round((documentCount / 6) * 100),
     100
   );
 
-  const navItems = [
-    { name: "Dashboard", href: "/dashboard" },
-    { name: "Profile", href: "/dashboard/profile" },
-    { name: "Applications", href: "/dashboard/applications" },
-    { name: "Universities", href: "/dashboard/universities" },
-    { name: "Documents", href: "/dashboard/documents" },
-    { name: "Scholarships", href: "/dashboard/scholarships" },
-    { name: "Messages", href: "/dashboard/messages" },
-    { name: "Settings", href: "/dashboard/settings" },
-  ];
+  const applicationProgress =
+    applications && applications.length > 0
+      ? Math.round(
+          applications.reduce(
+            (sum, application) => sum + (application.progress || 0),
+            0
+          ) / applications.length
+        )
+      : 0;
+
+  const applicationReadiness = Math.min(
+    Math.round(
+      profileCompletion * 0.35 +
+        documentCompletion * 0.25 +
+        applicationProgress * 0.4
+    ),
+    100
+  );
+
+  const nextStep =
+    profileCompletion < 100
+      ? {
+          title: "Complete your profile",
+          description:
+            "Add personal, address, contact, education, testing, family, and activities details.",
+          href: "/dashboard/profile",
+          cta: "Continue profile",
+        }
+      : documentCompletion < 100
+        ? {
+            title: "Upload your documents",
+            description:
+              "Upload KCSE certificate, transcript, passport or national ID, and supporting documents.",
+            href: "/dashboard/documents",
+            cta: "Upload documents",
+          }
+        : applicationCount === 0
+          ? {
+              title: "Add universities",
+              description:
+                "Choose universities and add them to your application tracker.",
+              href: "/dashboard/universities",
+              cta: "Find universities",
+            }
+          : {
+              title: "Review applications",
+              description:
+                "Open your application workspace and complete university-specific sections.",
+              href: "/dashboard/applications",
+              cta: "Open applications",
+            };
 
   return (
     <main className="min-h-screen bg-[#070B14] text-white">
@@ -63,6 +139,7 @@ export default async function DashboardPage() {
             <h1 className="bg-gradient-to-r from-fuchsia-400 via-purple-300 to-blue-400 bg-clip-text text-xl font-bold uppercase tracking-[0.35em] text-transparent">
               UniNexa
             </h1>
+
             <p className="mt-2 text-sm text-white/40">Student Portal</p>
           </div>
 
@@ -91,10 +168,14 @@ export default async function DashboardPage() {
         <section className="flex-1 p-4 pb-28 sm:p-6 lg:p-10">
           <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-medium text-fuchsia-300">Dashboard</p>
+              <p className="text-sm font-medium text-fuchsia-300">
+                Dashboard
+              </p>
+
               <h2 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl">
-                Good evening, {fullName}.
+                Welcome back, {fullName}.
               </h2>
+
               <p className="mt-3 max-w-2xl text-sm text-white/50">
                 Your global study journey is organized in one premium workspace.
               </p>
@@ -106,7 +187,10 @@ export default async function DashboardPage() {
           <div className="mb-8 rounded-[2rem] border border-white/10 bg-gradient-to-br from-white/[0.08] to-white/[0.03] p-5 shadow-[0_0_80px_rgba(168,85,247,0.12)] backdrop-blur-2xl sm:p-6 lg:p-8">
             <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
               <div>
-                <p className="text-sm text-white/50">Application readiness</p>
+                <p className="text-sm text-white/50">
+                  Application readiness
+                </p>
+
                 <h3 className="mt-3 text-4xl font-bold">
                   {applicationReadiness}% complete
                 </h3>
@@ -119,26 +203,29 @@ export default async function DashboardPage() {
                 </div>
 
                 <p className="mt-4 max-w-xl text-sm leading-relaxed text-white/50">
-                  Complete your profile, upload documents, and start matching
-                  with universities that fit your academic goals.
+                  Readiness is calculated from your profile completion,
+                  uploaded documents, and application progress.
                 </p>
               </div>
 
               <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
-                <p className="text-sm font-medium text-white/60">Next step</p>
+                <p className="text-sm font-medium text-white/60">
+                  Next step
+                </p>
+
                 <h4 className="mt-3 text-xl font-semibold">
-                  Complete your profile
+                  {nextStep.title}
                 </h4>
+
                 <p className="mt-2 text-sm text-white/40">
-                  Add personal information, address, contact details, education,
-                  testing, and activities.
+                  {nextStep.description}
                 </p>
 
                 <Link
-                  href="/dashboard/profile"
+                  href={nextStep.href}
                   className="mt-5 inline-block rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/90"
                 >
-                  Continue profile
+                  {nextStep.cta}
                 </Link>
               </div>
             </div>
@@ -146,7 +233,11 @@ export default async function DashboardPage() {
 
           <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              ["Profile", `${profileCompletion}%`, "3 of 10 sections"],
+              [
+                "Profile",
+                `${profileCompletion}%`,
+                `${completedProfileSections} of ${profileSections.length} sections`,
+              ],
               ["Documents", `${documentCount}/6`, "Required files"],
               ["Applications", String(applicationCount), "Saved schools"],
               ["Scholarships", String(scholarshipCount), "Tracked routes"],
@@ -164,7 +255,10 @@ export default async function DashboardPage() {
 
           <div className="grid gap-8 lg:grid-cols-[1.4fr_0.8fr]">
             <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl sm:p-6">
-              <h3 className="text-xl font-semibold">Your application journey</h3>
+              <h3 className="text-xl font-semibold">
+                Your application journey
+              </h3>
+
               <p className="mt-2 text-sm text-white/40">
                 Follow each stage to complete your study abroad process.
               </p>
@@ -173,9 +267,12 @@ export default async function DashboardPage() {
                 {[
                   {
                     title: "Complete profile",
-                    status: "In progress",
+                    status:
+                      profileCompletion === 100
+                        ? "Completed"
+                        : "In progress",
                     href: "/dashboard/profile",
-                    active: true,
+                    active: profileCompletion > 0,
                   },
                   {
                     title: "Upload documents",
@@ -185,19 +282,21 @@ export default async function DashboardPage() {
                   },
                   {
                     title: "Match universities",
-                    status: "Ready",
+                    status: applicationCount > 0 ? "Started" : "Ready",
                     href: "/dashboard/universities",
                     active: applicationCount > 0,
                   },
                   {
                     title: "Submit applications",
-                    status: applicationCount > 0 ? "In progress" : "Locked",
+                    status:
+                      applicationCount > 0 ? "In progress" : "Locked",
                     href: "/dashboard/applications",
                     active: applicationCount > 0,
                   },
                   {
                     title: "Find scholarships",
-                    status: scholarshipCount > 0 ? "Tracking" : "Recommended",
+                    status:
+                      scholarshipCount > 0 ? "Tracking" : "Recommended",
                     href: "/dashboard/scholarships",
                     active: scholarshipCount > 0,
                   },
@@ -236,31 +335,42 @@ export default async function DashboardPage() {
 
             <div className="space-y-6">
               <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl sm:p-6">
-                <h3 className="text-xl font-semibold">Recommended countries</h3>
+                <h3 className="text-xl font-semibold">
+                  Recommended countries
+                </h3>
 
                 <div className="mt-5 space-y-3">
-                  {["Canada", "United Kingdom", "Germany", "Australia"].map(
-                    (country) => (
-                      <Link
-                        key={country}
-                        href="/dashboard/universities"
-                        className="block rounded-2xl border border-white/10 bg-black/20 p-4 transition hover:bg-white/[0.06]"
-                      >
-                        <div className="flex items-center justify-between">
-                          <p className="font-medium">{country}</p>
-                          <span className="text-sm text-fuchsia-300">Match</span>
-                        </div>
-                        <p className="mt-1 text-sm text-white/40">
-                          Scholarships and student visa options available.
-                        </p>
-                      </Link>
-                    )
-                  )}
+                  {[
+                    "Canada",
+                    "United Kingdom",
+                    "Germany",
+                    "Australia",
+                  ].map((country) => (
+                    <Link
+                      key={country}
+                      href="/dashboard/universities"
+                      className="block rounded-2xl border border-white/10 bg-black/20 p-4 transition hover:bg-white/[0.06]"
+                    >
+                      <div className="flex items-center justify-between">
+                        <p className="font-medium">{country}</p>
+                        <span className="text-sm text-fuchsia-300">
+                          Match
+                        </span>
+                      </div>
+
+                      <p className="mt-1 text-sm text-white/40">
+                        Scholarships and student visa options available.
+                      </p>
+                    </Link>
+                  ))}
                 </div>
               </div>
 
               <div className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-fuchsia-500/15 to-blue-500/10 p-5 backdrop-blur-xl sm:p-6">
-                <h3 className="text-xl font-semibold">UniNexa counselor</h3>
+                <h3 className="text-xl font-semibold">
+                  UniNexa counselor
+                </h3>
+
                 <p className="mt-2 text-sm leading-relaxed text-white/50">
                   Get guidance on universities, documents, scholarships, and
                   application deadlines.

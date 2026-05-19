@@ -1,13 +1,14 @@
 "use server";
 
 import { redirect } from "next/navigation";
-
 import { createClient } from "@/lib/supabase/server";
 import { updateApplicationProgress } from "../update-progress";
 
+type GeneralAnswers = Record<string, string>;
+
 export async function saveGeneralDraft(
   applicationId: string,
-  formData: FormData
+  data: GeneralAnswers | FormData
 ) {
   const supabase = await createClient();
 
@@ -15,40 +16,53 @@ export async function saveGeneralDraft(
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
-    redirect("/login");
+  if (!user) redirect("/login");
+
+  const answers: GeneralAnswers = {};
+
+  if (data instanceof FormData) {
+    for (const [key, value] of data.entries()) {
+      answers[key] = String(value);
+    }
+  } else {
+    Object.entries(data).forEach(([key, value]) => {
+      answers[key] = String(value ?? "");
+    });
   }
 
-  const answers = {
-    full_name: formData.get("full_name"),
-    preferred_name: formData.get("preferred_name"),
-    email: formData.get("email"),
-    phone: formData.get("phone"),
-    country: formData.get("country"),
-    county: formData.get("county"),
-    intended_program: formData.get("intended_program"),
-    preferred_intake: formData.get("preferred_intake"),
-    university_interest_reason: formData.get(
-      "university_interest_reason"
-    ),
-  };
+  const { data: existing } = await supabase
+    .from("application_forms")
+    .select("id")
+    .eq("application_id", applicationId)
+    .eq("user_id", user.id)
+    .eq("section", "general")
+    .maybeSingle();
 
-  await supabase.from("application_forms").upsert(
-    {
+  if (existing) {
+    const { error } = await supabase
+      .from("application_forms")
+      .update({
+        answers,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existing.id);
+
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabase.from("application_forms").insert({
       application_id: applicationId,
       user_id: user.id,
       section: "general",
       answers,
       updated_at: new Date().toISOString(),
-    },
-    {
-      onConflict: "application_id,section",
-    }
-  );
+    });
+
+    if (error) throw new Error(error.message);
+  }
 
   await updateApplicationProgress(applicationId, user.id);
 
-  redirect(
-    `/dashboard/applications/${applicationId}/general?saved=1`
-  );
+  return {
+    success: true,
+  };
 }

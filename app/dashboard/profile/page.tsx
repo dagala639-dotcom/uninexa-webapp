@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { debounce } from "lodash";
 import LogoutButton from "../logout-button";
 import MobileNav from "../mobile-nav";
 import { createClient } from "@/lib/supabase/client";
@@ -63,14 +64,15 @@ const exams = [
 type Profile = Record<string, any>;
 
 export default function ProfilePage() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const [activeSection, setActiveSection] = useState("Personal Information");
   const [profile, setProfile] = useState<Profile>({});
   const [county, setCounty] = useState("Meru");
   const [schoolSearch, setSchoolSearch] = useState("");
   const [manualSchool, setManualSchool] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"Saved" | "Saving..." | "Failed to save">("Saved");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -85,7 +87,7 @@ export default function ProfilePage() {
         .from("profiles")
         .select("*")
         .eq("user_id", user.id)
-        .single();
+        .maybeSingle();
 
       if (data) {
         setProfile(data);
@@ -98,22 +100,20 @@ export default function ProfilePage() {
           country: "Kenya",
         });
       }
+
+      setLoaded(true);
     }
 
     loadProfile();
   }, [supabase]);
 
-  const towns = useMemo(() => {
-    return townsByCounty[county] || ["Main Town", "Town Centre", "Other"];
-  }, [county]);
+  const towns = useMemo(() => townsByCounty[county] || ["Main Town", "Town Centre", "Other"], [county]);
 
   const filteredSchools = useMemo(() => {
     if (!schoolSearch.trim()) return kenyanSchools.slice(0, 12);
 
     return kenyanSchools
-      .filter((school) =>
-        school.toLowerCase().includes(schoolSearch.toLowerCase())
-      )
+      .filter((school) => school.toLowerCase().includes(schoolSearch.toLowerCase()))
       .slice(0, 12);
   }, [schoolSearch]);
 
@@ -122,14 +122,61 @@ export default function ProfilePage() {
       ...current,
       [field]: value,
     }));
+
+    setSaveStatus("Saving...");
   }
 
   function completionKey(section: string) {
     return `${section.toLowerCase().replaceAll(" ", "_")}_completed`;
   }
 
-  async function saveProfile(markComplete = false) {
-    setSaving(true);
+  const autosaveProfile = useMemo(
+    () =>
+      debounce(async (nextProfile: Profile, nextCounty: string, nextSchool: string) => {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (!user) return;
+
+        const payload = {
+          ...nextProfile,
+          user_id: user.id,
+          email: nextProfile.email || user.email,
+          county: nextCounty,
+          high_school_name: nextSchool || nextProfile.high_school_name,
+          country: "Kenya",
+          updated_at: new Date().toISOString(),
+        };
+
+        const { data, error } = await supabase
+          .from("profiles")
+          .upsert(payload, { onConflict: "user_id" })
+          .select()
+          .single();
+
+        if (error) {
+          setSaveStatus("Failed to save");
+          setMessage(error.message);
+          return;
+        }
+
+        setProfile(data || payload);
+        setSaveStatus("Saved");
+      }, 1000),
+    [supabase]
+  );
+
+  useEffect(() => {
+    if (!loaded) return;
+
+    autosaveProfile(profile, county, schoolSearch);
+
+    return () => autosaveProfile.cancel();
+  }, [profile, county, schoolSearch, loaded, autosaveProfile]);
+
+  const markComplete = useCallback(async () => {
+    setSaveStatus("Saving...");
     setMessage("");
 
     const {
@@ -138,7 +185,7 @@ export default function ProfilePage() {
 
     if (!user) {
       setMessage("Please log in first.");
-      setSaving(false);
+      setSaveStatus("Failed to save");
       return;
     }
 
@@ -151,7 +198,7 @@ export default function ProfilePage() {
       county,
       high_school_name: schoolSearch || profile.high_school_name,
       country: "Kenya",
-      ...(markComplete ? { [key]: true } : {}),
+      [key]: true,
       updated_at: new Date().toISOString(),
     };
 
@@ -163,17 +210,14 @@ export default function ProfilePage() {
 
     if (error) {
       setMessage(error.message);
-    } else {
-      setProfile(data || payload);
-      setMessage(
-        markComplete
-          ? `${activeSection} saved and marked complete.`
-          : `${activeSection} draft saved.`
-      );
+      setSaveStatus("Failed to save");
+      return;
     }
 
-    setSaving(false);
-  }
+    setProfile(data || payload);
+    setSaveStatus("Saved");
+    setMessage(`${activeSection} marked complete.`);
+  }, [activeSection, county, profile, schoolSearch, supabase]);
 
   function isComplete(section: string) {
     return Boolean(profile?.[completionKey(section)]);
@@ -191,26 +235,25 @@ export default function ProfilePage() {
           </div>
 
           <nav className="space-y-2">
-            <Link href="/dashboard" className="block rounded-2xl px-4 py-3 text-sm text-white/50 hover:bg-white/5">
-              Dashboard
-            </Link>
-
-            <Link href="/dashboard/profile" className="block rounded-2xl bg-white/10 px-4 py-3 text-sm text-white">
-              Profile
-            </Link>
-
             {[
+              ["Dashboard", "/dashboard"],
+              ["Profile", "/dashboard/profile"],
               ["Applications", "/dashboard/applications"],
               ["Universities", "/dashboard/universities"],
               ["Documents", "/dashboard/documents"],
               ["Scholarships", "/dashboard/scholarships"],
+              ["Scholarship Guide", "/dashboard/scholarship-guide"],
               ["Messages", "/dashboard/messages"],
               ["Settings", "/dashboard/settings"],
             ].map(([name, href]) => (
               <Link
                 key={href}
                 href={href}
-                className="block rounded-2xl px-4 py-3 text-sm text-white/50 hover:bg-white/5"
+                className={`block rounded-2xl px-4 py-3 text-sm transition ${
+                  href === "/dashboard/profile"
+                    ? "bg-white/10 text-white"
+                    : "text-white/50 hover:bg-white/5 hover:text-white"
+                }`}
               >
                 {name}
               </Link>
@@ -230,7 +273,21 @@ export default function ProfilePage() {
               </p>
             </div>
 
-            <LogoutButton />
+            <div className="flex items-center gap-3">
+              <div
+                className={`rounded-full border px-4 py-2 text-sm ${
+                  saveStatus === "Saved"
+                    ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-300"
+                    : saveStatus === "Saving..."
+                      ? "border-amber-400/20 bg-amber-500/10 text-amber-300"
+                      : "border-red-400/20 bg-red-500/10 text-red-300"
+                }`}
+              >
+                {saveStatus}
+              </div>
+
+              <LogoutButton />
+            </div>
           </div>
 
           {message && (
@@ -243,9 +300,7 @@ export default function ProfilePage() {
             <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5">
               <div className="mb-6">
                 <h3 className="text-xl font-semibold">My UniNexa Profile</h3>
-                <p className="mt-1 text-sm text-white/40">
-                  Complete every section.
-                </p>
+                <p className="mt-1 text-sm text-white/40">Complete every section.</p>
               </div>
 
               <div className="space-y-3">
@@ -265,9 +320,7 @@ export default function ProfilePage() {
                       <div className="flex items-center gap-3">
                         <div
                           className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${
-                            complete
-                              ? "bg-emerald-500 text-white"
-                              : "bg-white/10 text-white/50"
+                            complete ? "bg-emerald-500 text-white" : "bg-white/10 text-white/50"
                           }`}
                         >
                           {complete ? "✓" : index + 1}
@@ -292,6 +345,7 @@ export default function ProfilePage() {
               <div className="mb-8">
                 <p className="text-sm text-fuchsia-300">Selected section</p>
                 <h3 className="mt-2 text-3xl font-bold">{activeSection}</h3>
+                <p className="mt-2 text-sm text-white/45">Changes save automatically.</p>
               </div>
 
               {activeSection === "Personal Information" && (
@@ -308,7 +362,7 @@ export default function ProfilePage() {
               {activeSection === "Address" && (
                 <FormGrid>
                   <Input label="Country" value="Kenya" disabled />
-                  <Select label="County" value={county} onChange={(e) => setCounty(e.target.value)} options={counties} />
+                  <Select label="County" value={county} onChange={(e) => { setCounty(e.target.value); setSaveStatus("Saving..."); }} options={counties} />
                   <Select label="Town / City" value={profile.town || ""} onChange={(e) => updateField("town", e.target.value)} options={towns} />
                   <Input label="Sub-county" value={profile.sub_county || ""} onChange={(e) => updateField("sub_county", e.target.value)} />
                   <Input label="Village / Estate / Street" value={profile.village || ""} onChange={(e) => updateField("village", e.target.value)} />
@@ -373,7 +427,10 @@ export default function ProfilePage() {
                       <div className="relative">
                         <input
                           value={schoolSearch}
-                          onChange={(e) => setSchoolSearch(e.target.value)}
+                          onChange={(e) => {
+                            setSchoolSearch(e.target.value);
+                            setSaveStatus("Saving...");
+                          }}
                           placeholder="Search your high school..."
                           className="w-full rounded-2xl border border-white/10 bg-white/10 px-5 py-4 text-white outline-none placeholder:text-white/30 focus:border-fuchsia-400/50"
                         />
@@ -383,7 +440,10 @@ export default function ProfilePage() {
                             <button
                               key={school}
                               type="button"
-                              onClick={() => setSchoolSearch(school)}
+                              onClick={() => {
+                                setSchoolSearch(school);
+                                setSaveStatus("Saving...");
+                              }}
                               className="block w-full rounded-xl px-4 py-3 text-left text-sm text-white/70 hover:bg-white/10 hover:text-white"
                             >
                               {school}
@@ -400,7 +460,7 @@ export default function ProfilePage() {
                         </div>
                       </div>
                     ) : (
-                      <Input label="Manual school name" value={schoolSearch} onChange={(e) => setSchoolSearch(e.target.value)} />
+                      <Input label="Manual school name" value={schoolSearch} onChange={(e) => { setSchoolSearch(e.target.value); setSaveStatus("Saving..."); }} />
                     )}
                   </div>
 
@@ -436,11 +496,15 @@ export default function ProfilePage() {
                 </FormGrid>
               )}
 
-              <ActionButtons
-                saving={saving}
-                onSave={() => saveProfile(false)}
-                onComplete={() => saveProfile(true)}
-              />
+              <div className="mt-8 flex justify-end">
+                <button
+                  type="button"
+                  onClick={markComplete}
+                  className="rounded-2xl bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/20 transition hover:scale-[1.01]"
+                >
+                  Save & Mark Complete
+                </button>
+              </div>
             </div>
           </div>
         </section>
@@ -453,38 +517,6 @@ export default function ProfilePage() {
 
 function FormGrid({ children }: { children: React.ReactNode }) {
   return <div className="grid gap-5 md:grid-cols-2">{children}</div>;
-}
-
-function ActionButtons({
-  saving,
-  onSave,
-  onComplete,
-}: {
-  saving: boolean;
-  onSave: () => void;
-  onComplete: () => void;
-}) {
-  return (
-    <div className="mt-8 flex flex-col justify-end gap-3 pt-3 sm:flex-row">
-      <button
-        type="button"
-        onClick={onSave}
-        disabled={saving}
-        className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white/70 transition hover:bg-white/10 disabled:opacity-50"
-      >
-        {saving ? "Saving..." : "Save draft"}
-      </button>
-
-      <button
-        type="button"
-        onClick={onComplete}
-        disabled={saving}
-        className="rounded-2xl bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/20 transition hover:scale-[1.01] disabled:opacity-50"
-      >
-        {saving ? "Saving..." : "Save & Mark Complete"}
-      </button>
-    </div>
-  );
 }
 
 function Input({
