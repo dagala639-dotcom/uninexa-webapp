@@ -35,7 +35,7 @@ const sectionLabels: Record<string, string> = {
   billing: "Billing",
 };
 
-export default async function ReviewSubmitPage({
+async function ReviewSubmitPage({
   params,
   searchParams,
 }: {
@@ -290,3 +290,4 @@ export default async function ReviewSubmitPage({
     </main>
   );
 }
+export default ReviewSubmitPage;
