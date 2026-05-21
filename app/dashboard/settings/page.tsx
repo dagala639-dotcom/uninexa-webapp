@@ -41,6 +41,7 @@ export default async function SettingsPage() {
               ["Universities", "/dashboard/universities"],
               ["Documents", "/dashboard/documents"],
               ["Scholarships", "/dashboard/scholarships"],
+              ["AI Matcher", "/dashboard/ai-matcher"],
               ["Messages", "/dashboard/messages"],
               ["Settings", "/dashboard/settings"],
             ].map(([name, href]) => (

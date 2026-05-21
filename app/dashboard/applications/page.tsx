@@ -1,8 +1,115 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "../logout-button";
 import MobileNav from "../mobile-nav";
+
+async function deleteApplication(formData: FormData) {
+  "use server";
+
+  const applicationId = String(formData.get("application_id") || "");
+
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  await supabase
+    .from("university_applicants")
+    .delete()
+    .eq("application_id", applicationId)
+    .eq("student_user_id", user.id);
+
+  await supabase
+    .from("application_forms")
+    .delete()
+    .eq("application_id", applicationId)
+    .eq("user_id", user.id);
+
+  await supabase
+    .from("applications")
+    .delete()
+    .eq("id", applicationId)
+    .eq("user_id", user.id);
+
+  revalidatePath("/dashboard/applications");
+  redirect("/dashboard/applications");
+}
+
+async function submitToUniversity(formData: FormData) {
+  "use server";
+
+  const applicationId = String(formData.get("application_id") || "");
+  const universityName = String(formData.get("university_name") || "");
+
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  const { data: universityAccount, error: universityError } =
+  await supabase
+    .from("university_accounts")
+    .select("id, university_name")
+    .ilike("university_name", universityName)
+    .maybeSingle();
+
+if (universityError) {
+  throw new Error(universityError.message);
+}
+
+if (!universityAccount) {
+  throw new Error(
+    `No university account found for ${universityName}`
+  );
+}
+
+await supabase
+  .from("applications")
+  .update({
+    status: "Submitted",
+    progress: 100,
+    submitted_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  })
+  .eq("id", applicationId)
+  .eq("user_id", user.id);
+
+const { error: applicantError } = await supabase
+  .from("university_applicants")
+  .upsert(
+    {
+      university_account_id: universityAccount.id,
+      application_id: applicationId,
+      student_user_id: user.id,
+      status: "New applicant",
+      updated_at: new Date().toISOString(),
+    },
+    {
+      onConflict:
+        "university_account_id,application_id",
+    }
+  );
+
+if (applicantError) {
+  throw new Error(applicantError.message);
+}
+
+  revalidatePath("/dashboard/applications");
+  revalidatePath("/university");
+  revalidatePath("/university/applicants");
+}
 
 export default async function ApplicationsPage() {
   const supabase = await createClient();
@@ -68,6 +175,7 @@ export default async function ApplicationsPage() {
               ["Universities", "/dashboard/universities"],
               ["Documents", "/dashboard/documents"],
               ["Scholarships", "/dashboard/scholarships"],
+              ["AI Matcher", "/dashboard/ai-matcher"],
               ["Messages", "/dashboard/messages"],
               ["Settings", "/dashboard/settings"],
             ].map(([name, href]) => (
@@ -96,7 +204,8 @@ export default async function ApplicationsPage() {
                 Your university applications.
               </h2>
               <p className="mt-3 max-w-2xl text-sm text-white/50">
-                Universities added from the Universities page will appear here.
+                Apply from UniNexa and track your application into the university
+                partner pipeline.
               </p>
             </div>
 
@@ -133,8 +242,8 @@ export default async function ApplicationsPage() {
                 </div>
 
                 <p className="mt-4 text-sm text-white/45">
-                  Add universities, choose programs, upload documents, and track
-                  each application until submission.
+                  Once submitted, partner universities can see the application in
+                  their UniNexa portal.
                 </p>
               </div>
 
@@ -189,7 +298,7 @@ export default async function ApplicationsPage() {
                     Application pipeline
                   </h3>
                   <p className="mt-1 text-sm text-white/40">
-                    Your saved university applications.
+                    Saved applications and university submission status.
                   </p>
                 </div>
 
@@ -220,68 +329,128 @@ export default async function ApplicationsPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {applications.map((app) => (
-                    <div
-                      key={app.id}
-                      className="rounded-3xl border border-white/10 bg-black/20 p-5 transition hover:bg-white/[0.06]"
-                    >
-                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                        <div>
-                          <p className="text-xs uppercase tracking-[0.25em] text-fuchsia-300">
-                            {app.country || "Country not set"}
-                          </p>
-                          <h4 className="mt-2 text-xl font-semibold">
-                            {app.university_name}
-                          </h4>
-                          <p className="mt-1 text-sm text-white/45">
-                            {app.program || "Undecided"}
-                          </p>
-                        </div>
+                  {applications.map((app) => {
+                    const isSubmitted = app.status === "Submitted";
 
-                        <span className="w-fit rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs text-white/70">
-                          {app.status || "In progress"}
-                        </span>
-                      </div>
+                    return (
+                      <div
+                        key={app.id}
+                        className="rounded-3xl border border-white/10 bg-black/20 p-5 transition hover:bg-white/[0.06]"
+                      >
+                        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                          <div>
+                            <p className="text-xs uppercase tracking-[0.25em] text-fuchsia-300">
+                              {app.country || "Country not set"}
+                            </p>
+                            <h4 className="mt-2 text-xl font-semibold">
+                              {app.university_name}
+                            </h4>
+                            <p className="mt-1 text-sm text-white/45">
+                              {app.program || "Undecided"}
+                            </p>
+                          </div>
 
-                      <div className="mt-5">
-                        <div className="mb-2 flex justify-between text-sm">
-                          <span className="text-white/40">Progress</span>
-                          <span>{app.progress || 0}%</span>
-                        </div>
-
-                        <div className="h-2 overflow-hidden rounded-full bg-white/10">
-                          <div
-                            className="h-full rounded-full bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500"
-                            style={{ width: `${app.progress || 0}%` }}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="mt-5 flex flex-wrap gap-2">
-                        {["Program", "Documents", "Deadline"].map((item) => (
                           <span
-                            key={item}
-                            className="rounded-full border border-orange-400/20 bg-orange-500/10 px-3 py-1 text-xs text-orange-200"
+                            className={`w-fit rounded-full border px-4 py-2 text-xs ${
+                              isSubmitted
+                                ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-300"
+                                : "border-white/10 bg-white/10 text-white/70"
+                            }`}
                           >
-                            Set up: {item}
+                            {app.status || "In progress"}
                           </span>
-                        ))}
-                      </div>
+                        </div>
 
-                      <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-sm text-white/40">
-                          Deadline: {app.deadline || "Not set"}
-                        </p>
+                        <div className="mt-5">
+                          <div className="mb-2 flex justify-between text-sm">
+                            <span className="text-white/40">Progress</span>
+                            <span>{app.progress || 0}%</span>
+                          </div>
 
-                        <Link
-                          href={`/dashboard/applications/${app.id}`}
-                          className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-center text-sm font-semibold text-white/70 transition hover:bg-white/10"
-                        >
-                          Open
-                        </Link>
+                          <div className="h-2 overflow-hidden rounded-full bg-white/10">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500"
+                              style={{ width: `${app.progress || 0}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="mt-5 flex flex-wrap gap-2">
+                          {isSubmitted ? (
+                            <>
+                              <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200">
+                                Sent to university portal
+                              </span>
+                              <span className="rounded-full border border-blue-400/20 bg-blue-500/10 px-3 py-1 text-xs text-blue-200">
+                                Awaiting university review
+                              </span>
+                            </>
+                          ) : (
+                            ["Program", "Documents", "Deadline"].map((item) => (
+                              <span
+                                key={item}
+                                className="rounded-full border border-orange-400/20 bg-orange-500/10 px-3 py-1 text-xs text-orange-200"
+                              >
+                                Set up: {item}
+                              </span>
+                            ))
+                          )}
+                        </div>
+
+                        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <p className="text-sm text-white/40">
+                            Deadline: {app.deadline || "Not set"}
+                          </p>
+
+                          <div className="flex flex-col gap-3 sm:flex-row">
+                            <form action={deleteApplication}>
+                              <input
+                                type="hidden"
+                                name="application_id"
+                                value={app.id}
+                              />
+
+                              <button
+                                type="submit"
+                                className="rounded-2xl border border-red-400/20 bg-red-500/10 px-5 py-3 text-sm font-semibold text-red-300 transition hover:bg-red-500/20"
+                              >
+                                Delete
+                              </button>
+                            </form>
+
+                            <Link
+                              href={`/dashboard/applications/${app.id}`}
+                              className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-center text-sm font-semibold text-white/70 transition hover:bg-white/10"
+                            >
+                              Open
+                            </Link>
+
+                            {!isSubmitted && (
+                              <form action={submitToUniversity}>
+                                <input
+                                  type="hidden"
+                                  name="application_id"
+                                  value={app.id}
+                                />
+                                <input
+                                  type="hidden"
+                                  name="university_name"
+                                  value={app.university_name || ""}
+                                />
+
+                                <button
+                                  type="submit"
+                                  className="rounded-2xl bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/20 transition hover:scale-[1.01]"
+                                >
+                                  Submit to university
+                                </button>
+                              </form>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -325,8 +494,8 @@ export default async function ApplicationsPage() {
               <div className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-fuchsia-500/15 to-blue-500/10 p-5 backdrop-blur-xl sm:p-6">
                 <h3 className="text-xl font-semibold">Recommended next move</h3>
                 <p className="mt-2 text-sm leading-relaxed text-white/50">
-                  Add a program, set your deadline, and upload your KCSE
-                  certificate to improve application readiness.
+                  Submit your application once your documents are ready. Partner
+                  universities will see it in their UniNexa portal.
                 </p>
 
                 <Link

@@ -11,7 +11,7 @@ const navItems = [
   { name: "Universities", href: "/dashboard/universities" },
   { name: "Documents", href: "/dashboard/documents" },
   { name: "Scholarships", href: "/dashboard/scholarships" },
-  { name: "Scholarship Guide", href: "/dashboard/scholarship-guide" },
+  { name: "AI Matcher", href: "/dashboard/ai-matcher" },
   { name: "Messages", href: "/dashboard/messages" },
   { name: "Settings", href: "/dashboard/settings" },
 ];

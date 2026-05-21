@@ -280,7 +280,7 @@ export default function DocumentsPage() {
               ["Universities", "/dashboard/universities"],
               ["Documents", "/dashboard/documents"],
               ["Scholarships", "/dashboard/scholarships"],
-              ["Scholarship Guide", "/dashboard/scholarship-guide"],
+              ["AI Matcher", "/dashboard/ai-matcher"],
               ["Messages", "/dashboard/messages"],
               ["Settings", "/dashboard/settings"],
             ].map(([name, href]) => (

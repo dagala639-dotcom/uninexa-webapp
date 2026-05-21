@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { debounce } from "lodash";
 import LogoutButton from "../logout-button";
 import MobileNav from "../mobile-nav";
@@ -65,6 +66,7 @@ type Profile = Record<string, any>;
 
 export default function ProfilePage() {
   const supabase = useMemo(() => createClient(), []);
+  const router = useRouter();
 
   const [activeSection, setActiveSection] = useState("Personal Information");
   const [profile, setProfile] = useState<Profile>({});
@@ -72,16 +74,23 @@ export default function ProfilePage() {
   const [schoolSearch, setSchoolSearch] = useState("");
   const [manualSchool, setManualSchool] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<"Saved" | "Saving..." | "Failed to save">("Saved");
+  const [saveStatus, setSaveStatus] = useState<
+    "Saved" | "Saving..." | "Failed to save"
+  >("Saved");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     async function loadProfile() {
       const {
-        data: { user },
-      } = await supabase.auth.getUser();
+        data: { session },
+      } = await supabase.auth.getSession();
 
-      if (!user) return;
+      const user = session?.user;
+
+      if (!user) {
+        router.push("/login");
+        return;
+      }
 
       const { data } = await supabase
         .from("profiles")
@@ -105,15 +114,20 @@ export default function ProfilePage() {
     }
 
     loadProfile();
-  }, [supabase]);
+  }, [supabase, router]);
 
-  const towns = useMemo(() => townsByCounty[county] || ["Main Town", "Town Centre", "Other"], [county]);
+  const towns = useMemo(
+    () => townsByCounty[county] || ["Main Town", "Town Centre", "Other"],
+    [county]
+  );
 
   const filteredSchools = useMemo(() => {
     if (!schoolSearch.trim()) return kenyanSchools.slice(0, 12);
 
     return kenyanSchools
-      .filter((school) => school.toLowerCase().includes(schoolSearch.toLowerCase()))
+      .filter((school) =>
+        school.toLowerCase().includes(schoolSearch.toLowerCase())
+      )
       .slice(0, 12);
   }, [schoolSearch]);
 
@@ -126,45 +140,105 @@ export default function ProfilePage() {
     setSaveStatus("Saving...");
   }
 
-  function completionKey(section: string) {
-    return `${section.toLowerCase().replaceAll(" ", "_")}_completed`;
+  function isSectionComplete(section: string) {
+    switch (section) {
+      case "Personal Information":
+        return Boolean(
+          profile.full_name &&
+            profile.preferred_name &&
+            profile.date_of_birth &&
+            profile.gender
+        );
+
+      case "Address":
+        return Boolean(county && profile.town);
+
+      case "Contact Details":
+        return Boolean(profile.email && profile.phone);
+
+      case "Demographics":
+        return Boolean(profile.financial_aid_need);
+
+      case "Language":
+        return Boolean(profile.primary_language && profile.english_proficiency);
+
+      case "Family":
+        return Boolean(
+          profile.guardian_1_name &&
+            profile.guardian_1_relationship &&
+            profile.guardian_1_phone &&
+            profile.education_sponsor
+        );
+
+      case "Education":
+        return Boolean(
+          schoolSearch &&
+            profile.curriculum &&
+            profile.year_completed &&
+            profile.kcse_mean_grade
+        );
+
+      case "Testing":
+        return Boolean(profile.international_exam_status);
+
+      case "Activities":
+        return Boolean(profile.activity_type && profile.activity_name);
+
+      default:
+        return false;
+    }
   }
+
+  const completedSections = profileSections.filter((section) =>
+    isSectionComplete(section)
+  ).length;
+
+  const completionPercentage = Math.round(
+    (completedSections / profileSections.length) * 100
+  );
 
   const autosaveProfile = useMemo(
     () =>
-      debounce(async (nextProfile: Profile, nextCounty: string, nextSchool: string) => {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
+      debounce(
+        async (nextProfile: Profile, nextCounty: string, nextSchool: string) => {
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
 
-        if (!user) return;
+          const user = session?.user;
 
-        const payload = {
-          ...nextProfile,
-          user_id: user.id,
-          email: nextProfile.email || user.email,
-          county: nextCounty,
-          high_school_name: nextSchool || nextProfile.high_school_name,
-          country: "Kenya",
-          updated_at: new Date().toISOString(),
-        };
+          if (!user) return;
 
-        const { data, error } = await supabase
-          .from("profiles")
-          .upsert(payload, { onConflict: "user_id" })
-          .select()
-          .single();
+          const payload = {
+            ...nextProfile,
+            user_id: user.id,
+            email: nextProfile.email || user.email,
+            county: nextCounty,
+            high_school_name: nextSchool || nextProfile.high_school_name,
+            country: "Kenya",
+            profile_completion_percentage: completionPercentage,
+            profile_completed: completionPercentage === 100,
+            updated_at: new Date().toISOString(),
+          };
 
-        if (error) {
-          setSaveStatus("Failed to save");
-          setMessage(error.message);
-          return;
-        }
+          const { data, error } = await supabase
+            .from("profiles")
+            .upsert(payload, { onConflict: "user_id" })
+            .select()
+            .single();
 
-        setProfile(data || payload);
-        setSaveStatus("Saved");
-      }, 1000),
-    [supabase]
+          if (error) {
+            setSaveStatus("Failed to save");
+            setMessage(error.message);
+            return;
+          }
+
+          setProfile(data || payload);
+          setSaveStatus("Saved");
+        },
+        1000
+      ),
+    [supabase, completionPercentage]
   );
 
   useEffect(() => {
@@ -174,54 +248,6 @@ export default function ProfilePage() {
 
     return () => autosaveProfile.cancel();
   }, [profile, county, schoolSearch, loaded, autosaveProfile]);
-
-  const markComplete = useCallback(async () => {
-    setSaveStatus("Saving...");
-    setMessage("");
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      setMessage("Please log in first.");
-      setSaveStatus("Failed to save");
-      return;
-    }
-
-    const key = completionKey(activeSection);
-
-    const payload = {
-      ...profile,
-      user_id: user.id,
-      email: profile.email || user.email,
-      county,
-      high_school_name: schoolSearch || profile.high_school_name,
-      country: "Kenya",
-      [key]: true,
-      updated_at: new Date().toISOString(),
-    };
-
-    const { data, error } = await supabase
-      .from("profiles")
-      .upsert(payload, { onConflict: "user_id" })
-      .select()
-      .single();
-
-    if (error) {
-      setMessage(error.message);
-      setSaveStatus("Failed to save");
-      return;
-    }
-
-    setProfile(data || payload);
-    setSaveStatus("Saved");
-    setMessage(`${activeSection} marked complete.`);
-  }, [activeSection, county, profile, schoolSearch, supabase]);
-
-  function isComplete(section: string) {
-    return Boolean(profile?.[completionKey(section)]);
-  }
 
   return (
     <main className="min-h-screen bg-[#070B14] text-white">
@@ -242,7 +268,7 @@ export default function ProfilePage() {
               ["Universities", "/dashboard/universities"],
               ["Documents", "/dashboard/documents"],
               ["Scholarships", "/dashboard/scholarships"],
-              ["Scholarship Guide", "/dashboard/scholarship-guide"],
+              ["AI Matcher", "/dashboard/ai-matcher"],
               ["Messages", "/dashboard/messages"],
               ["Settings", "/dashboard/settings"],
             ].map(([name, href]) => (
@@ -269,11 +295,17 @@ export default function ProfilePage() {
                 Build your student profile.
               </h2>
               <p className="mt-3 text-sm text-white/50">
-                Complete your details for university matching and applications.
+                Required fields are marked with{" "}
+                <span className="text-red-400">*</span>. Completion is checked
+                automatically.
               </p>
             </div>
 
             <div className="flex items-center gap-3">
+              <div className="rounded-full border border-blue-400/20 bg-blue-500/10 px-4 py-2 text-sm text-blue-300">
+                {completionPercentage}% complete
+              </div>
+
               <div
                 className={`rounded-full border px-4 py-2 text-sm ${
                   saveStatus === "Saved"
@@ -300,12 +332,14 @@ export default function ProfilePage() {
             <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5">
               <div className="mb-6">
                 <h3 className="text-xl font-semibold">My UniNexa Profile</h3>
-                <p className="mt-1 text-sm text-white/40">Complete every section.</p>
+                <p className="mt-1 text-sm text-white/40">
+                  Sections complete automatically.
+                </p>
               </div>
 
               <div className="space-y-3">
                 {profileSections.map((title, index) => {
-                  const complete = isComplete(title);
+                  const complete = isSectionComplete(title);
 
                   return (
                     <button
@@ -320,7 +354,9 @@ export default function ProfilePage() {
                       <div className="flex items-center gap-3">
                         <div
                           className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${
-                            complete ? "bg-emerald-500 text-white" : "bg-white/10 text-white/50"
+                            complete
+                              ? "bg-emerald-500 text-white"
+                              : "bg-white/10 text-white/50"
                           }`}
                         >
                           {complete ? "✓" : index + 1}
@@ -342,18 +378,32 @@ export default function ProfilePage() {
             </div>
 
             <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 sm:p-6">
-              <div className="mb-8">
-                <p className="text-sm text-fuchsia-300">Selected section</p>
-                <h3 className="mt-2 text-3xl font-bold">{activeSection}</h3>
-                <p className="mt-2 text-sm text-white/45">Changes save automatically.</p>
+              <div className="mb-8 flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm text-fuchsia-300">Selected section</p>
+                  <h3 className="mt-2 text-3xl font-bold">{activeSection}</h3>
+                  <p className="mt-2 text-sm text-white/45">
+                    Changes save automatically.
+                  </p>
+                </div>
+
+                <div
+                  className={`rounded-full border px-4 py-2 text-xs font-semibold ${
+                    isSectionComplete(activeSection)
+                      ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-300"
+                      : "border-orange-400/20 bg-orange-500/10 text-orange-300"
+                  }`}
+                >
+                  {isSectionComplete(activeSection) ? "Complete" : "Incomplete"}
+                </div>
               </div>
 
               {activeSection === "Personal Information" && (
                 <FormGrid>
-                  <Input label="Full legal name" value={profile.full_name || ""} onChange={(e) => updateField("full_name", e.target.value)} />
-                  <Input label="Preferred name" value={profile.preferred_name || ""} onChange={(e) => updateField("preferred_name", e.target.value)} />
-                  <Input label="Date of birth" type="date" value={profile.date_of_birth || ""} onChange={(e) => updateField("date_of_birth", e.target.value)} />
-                  <Select label="Gender" value={profile.gender || ""} onChange={(e) => updateField("gender", e.target.value)} options={["Male", "Female", "Prefer not to say"]} />
+                  <Input required label="Full legal name" value={profile.full_name || ""} onChange={(e) => updateField("full_name", e.target.value)} />
+                  <Input required label="Preferred name" value={profile.preferred_name || ""} onChange={(e) => updateField("preferred_name", e.target.value)} />
+                  <Input required label="Date of birth" type="date" value={profile.date_of_birth || ""} onChange={(e) => updateField("date_of_birth", e.target.value)} />
+                  <Select required label="Gender" value={profile.gender || ""} onChange={(e) => updateField("gender", e.target.value)} options={["Male", "Female", "Prefer not to say"]} />
                   <Input label="National ID / Passport number" value={profile.passport_number || ""} onChange={(e) => updateField("passport_number", e.target.value)} />
                   <Input label="Short student bio" value={profile.bio || ""} onChange={(e) => updateField("bio", e.target.value)} full />
                 </FormGrid>
@@ -361,9 +411,9 @@ export default function ProfilePage() {
 
               {activeSection === "Address" && (
                 <FormGrid>
-                  <Input label="Country" value="Kenya" disabled />
-                  <Select label="County" value={county} onChange={(e) => { setCounty(e.target.value); setSaveStatus("Saving..."); }} options={counties} />
-                  <Select label="Town / City" value={profile.town || ""} onChange={(e) => updateField("town", e.target.value)} options={towns} />
+                  <Input required label="Country" value="Kenya" disabled />
+                  <Select required label="County" value={county} onChange={(e) => { setCounty(e.target.value); setSaveStatus("Saving..."); }} options={counties} />
+                  <Select required label="Town / City" value={profile.town || ""} onChange={(e) => updateField("town", e.target.value)} options={towns} />
                   <Input label="Sub-county" value={profile.sub_county || ""} onChange={(e) => updateField("sub_county", e.target.value)} />
                   <Input label="Village / Estate / Street" value={profile.village || ""} onChange={(e) => updateField("village", e.target.value)} />
                   <Input label="Postal code" value={profile.postal_code || ""} onChange={(e) => updateField("postal_code", e.target.value)} />
@@ -373,8 +423,8 @@ export default function ProfilePage() {
 
               {activeSection === "Contact Details" && (
                 <FormGrid>
-                  <Input label="Email address" type="email" value={profile.email || ""} onChange={(e) => updateField("email", e.target.value)} />
-                  <Input label="Phone number" value={profile.phone || ""} onChange={(e) => updateField("phone", e.target.value)} />
+                  <Input required label="Email address" type="email" value={profile.email || ""} onChange={(e) => updateField("email", e.target.value)} />
+                  <Input required label="Phone number" value={profile.phone || ""} onChange={(e) => updateField("phone", e.target.value)} />
                   <Input label="Alternative phone number" value={profile.alternative_phone || ""} onChange={(e) => updateField("alternative_phone", e.target.value)} />
                   <Input label="Emergency contact name" value={profile.emergency_contact_name || ""} onChange={(e) => updateField("emergency_contact_name", e.target.value)} />
                   <Input label="Emergency contact phone" value={profile.emergency_contact_phone || ""} onChange={(e) => updateField("emergency_contact_phone", e.target.value)} />
@@ -387,15 +437,15 @@ export default function ProfilePage() {
                   <Select label="Marital status" value={profile.marital_status || ""} onChange={(e) => updateField("marital_status", e.target.value)} options={["Single", "Married", "Prefer not to say"]} />
                   <Select label="Do you have a disability?" value={profile.disability || ""} onChange={(e) => updateField("disability", e.target.value)} options={["No", "Yes", "Prefer not to say"]} />
                   <Select label="Are you first generation university student?" value={profile.first_generation || ""} onChange={(e) => updateField("first_generation", e.target.value)} options={["Yes", "No", "Not sure"]} />
-                  <Select label="Do you need financial aid?" value={profile.financial_aid_need || ""} onChange={(e) => updateField("financial_aid_need", e.target.value)} options={["Yes", "No", "Maybe"]} />
+                  <Select required label="Do you need financial aid?" value={profile.financial_aid_need || ""} onChange={(e) => updateField("financial_aid_need", e.target.value)} options={["Yes", "No", "Maybe"]} />
                   <Input label="Special circumstances" value={profile.special_circumstances || ""} onChange={(e) => updateField("special_circumstances", e.target.value)} full />
                 </FormGrid>
               )}
 
               {activeSection === "Language" && (
                 <FormGrid>
-                  <Select label="Primary language" value={profile.primary_language || ""} onChange={(e) => updateField("primary_language", e.target.value)} options={["English", "Kiswahili", "Kimeru", "Kikuyu", "Luo", "Kalenjin", "Other"]} />
-                  <Select label="English proficiency" value={profile.english_proficiency || ""} onChange={(e) => updateField("english_proficiency", e.target.value)} options={["Native", "Fluent", "Intermediate", "Beginner"]} />
+                  <Select required label="Primary language" value={profile.primary_language || ""} onChange={(e) => updateField("primary_language", e.target.value)} options={["English", "Kiswahili", "Kimeru", "Kikuyu", "Luo", "Kalenjin", "Other"]} />
+                  <Select required label="English proficiency" value={profile.english_proficiency || ""} onChange={(e) => updateField("english_proficiency", e.target.value)} options={["Native", "Fluent", "Intermediate", "Beginner"]} />
                   <Select label="Swahili proficiency" value={profile.swahili_proficiency || ""} onChange={(e) => updateField("swahili_proficiency", e.target.value)} options={["Native", "Fluent", "Intermediate", "Beginner"]} />
                   <Input label="Other languages" value={profile.other_languages || ""} onChange={(e) => updateField("other_languages", e.target.value)} />
                 </FormGrid>
@@ -403,16 +453,16 @@ export default function ProfilePage() {
 
               {activeSection === "Family" && (
                 <FormGrid>
-                  <Input label="Parent / Guardian 1 full name" value={profile.guardian_1_name || ""} onChange={(e) => updateField("guardian_1_name", e.target.value)} />
-                  <Select label="Relationship" value={profile.guardian_1_relationship || ""} onChange={(e) => updateField("guardian_1_relationship", e.target.value)} options={["Father", "Mother", "Guardian", "Sponsor", "Other"]} />
-                  <Input label="Guardian 1 phone" value={profile.guardian_1_phone || ""} onChange={(e) => updateField("guardian_1_phone", e.target.value)} />
+                  <Input required label="Parent / Guardian 1 full name" value={profile.guardian_1_name || ""} onChange={(e) => updateField("guardian_1_name", e.target.value)} />
+                  <Select required label="Relationship" value={profile.guardian_1_relationship || ""} onChange={(e) => updateField("guardian_1_relationship", e.target.value)} options={["Father", "Mother", "Guardian", "Sponsor", "Other"]} />
+                  <Input required label="Guardian 1 phone" value={profile.guardian_1_phone || ""} onChange={(e) => updateField("guardian_1_phone", e.target.value)} />
                   <Input label="Guardian 1 occupation" value={profile.guardian_1_occupation || ""} onChange={(e) => updateField("guardian_1_occupation", e.target.value)} />
                   <Input label="Parent / Guardian 2 full name" value={profile.guardian_2_name || ""} onChange={(e) => updateField("guardian_2_name", e.target.value)} />
                   <Select label="Relationship" value={profile.guardian_2_relationship || ""} onChange={(e) => updateField("guardian_2_relationship", e.target.value)} options={["Father", "Mother", "Guardian", "Sponsor", "Other"]} />
                   <Input label="Guardian 2 phone" value={profile.guardian_2_phone || ""} onChange={(e) => updateField("guardian_2_phone", e.target.value)} />
                   <Input label="Guardian 2 occupation" value={profile.guardian_2_occupation || ""} onChange={(e) => updateField("guardian_2_occupation", e.target.value)} />
                   <Input label="Number of siblings" type="number" value={profile.siblings || ""} onChange={(e) => updateField("siblings", e.target.value)} />
-                  <Select label="Who will sponsor your education?" value={profile.education_sponsor || ""} onChange={(e) => updateField("education_sponsor", e.target.value)} options={["Parent", "Guardian", "Self", "Scholarship", "Family", "Other"]} />
+                  <Select required label="Who will sponsor your education?" value={profile.education_sponsor || ""} onChange={(e) => updateField("education_sponsor", e.target.value)} options={["Parent", "Guardian", "Self", "Scholarship", "Family", "Other"]} />
                 </FormGrid>
               )}
 
@@ -420,7 +470,7 @@ export default function ProfilePage() {
                 <div className="space-y-6">
                   <div>
                     <label className="mb-2 block text-sm font-medium text-white/70">
-                      High school name
+                      High school name <span className="text-red-400">*</span>
                     </label>
 
                     {!manualSchool ? (
@@ -460,24 +510,24 @@ export default function ProfilePage() {
                         </div>
                       </div>
                     ) : (
-                      <Input label="Manual school name" value={schoolSearch} onChange={(e) => { setSchoolSearch(e.target.value); setSaveStatus("Saving..."); }} />
+                      <Input required label="Manual school name" value={schoolSearch} onChange={(e) => { setSchoolSearch(e.target.value); setSaveStatus("Saving..."); }} />
                     )}
                   </div>
 
                   <FormGrid>
                     <Select label="School county" value={profile.school_county || ""} onChange={(e) => updateField("school_county", e.target.value)} options={counties} />
-                    <Select label="Curriculum" value={profile.curriculum || ""} onChange={(e) => updateField("curriculum", e.target.value)} options={["KCSE", "IGCSE", "A-Level", "IB", "Other"]} />
+                    <Select required label="Curriculum" value={profile.curriculum || ""} onChange={(e) => updateField("curriculum", e.target.value)} options={["KCSE", "IGCSE", "A-Level", "IB", "Other"]} />
                     <Input label="Year started" value={profile.year_started || ""} onChange={(e) => updateField("year_started", e.target.value)} />
-                    <Input label="Year completed / expected" value={profile.year_completed || ""} onChange={(e) => updateField("year_completed", e.target.value)} />
+                    <Input required label="Year completed / expected" value={profile.year_completed || ""} onChange={(e) => updateField("year_completed", e.target.value)} />
                     <Input label="KCSE index number" value={profile.kcse_index_number || ""} onChange={(e) => updateField("kcse_index_number", e.target.value)} />
-                    <Select label="KCSE mean grade" value={profile.kcse_mean_grade || ""} onChange={(e) => updateField("kcse_mean_grade", e.target.value)} options={["A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-", "E"]} />
+                    <Select required label="KCSE mean grade" value={profile.kcse_mean_grade || ""} onChange={(e) => updateField("kcse_mean_grade", e.target.value)} options={["A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-", "E"]} />
                   </FormGrid>
                 </div>
               )}
 
               {activeSection === "Testing" && (
                 <FormGrid>
-                  <Select label="Have you taken any international exam?" value={profile.international_exam_status || ""} onChange={(e) => updateField("international_exam_status", e.target.value)} options={["Yes", "No", "Planning to"]} />
+                  <Select required label="Have you taken any international exam?" value={profile.international_exam_status || ""} onChange={(e) => updateField("international_exam_status", e.target.value)} options={["Yes", "No", "Planning to"]} />
                   <Select label="Exam type" value={profile.exam_type || ""} onChange={(e) => updateField("exam_type", e.target.value)} options={exams} />
                   <Input label="Score / Grade" value={profile.exam_score || ""} onChange={(e) => updateField("exam_score", e.target.value)} />
                   <Input label="Test date" type="date" value={profile.test_date || ""} onChange={(e) => updateField("test_date", e.target.value)} />
@@ -488,8 +538,8 @@ export default function ProfilePage() {
 
               {activeSection === "Activities" && (
                 <FormGrid>
-                  <Select label="Activity type" value={profile.activity_type || ""} onChange={(e) => updateField("activity_type", e.target.value)} options={["Leadership", "Sports", "Clubs", "Volunteering", "Work experience", "Awards", "Projects", "Community service", "Talent / Arts"]} />
-                  <Input label="Activity name" value={profile.activity_name || ""} onChange={(e) => updateField("activity_name", e.target.value)} />
+                  <Select required label="Activity type" value={profile.activity_type || ""} onChange={(e) => updateField("activity_type", e.target.value)} options={["Leadership", "Sports", "Clubs", "Volunteering", "Work experience", "Awards", "Projects", "Community service", "Talent / Arts"]} />
+                  <Input required label="Activity name" value={profile.activity_name || ""} onChange={(e) => updateField("activity_name", e.target.value)} />
                   <Input label="Role / Position" value={profile.activity_role || ""} onChange={(e) => updateField("activity_role", e.target.value)} />
                   <Input label="Years involved" value={profile.activity_years || ""} onChange={(e) => updateField("activity_years", e.target.value)} />
                   <Input label="Description" value={profile.activity_description || ""} onChange={(e) => updateField("activity_description", e.target.value)} full />
@@ -499,10 +549,10 @@ export default function ProfilePage() {
               <div className="mt-8 flex justify-end">
                 <button
                   type="button"
-                  onClick={markComplete}
+                  onClick={() => router.push("/dashboard")}
                   className="rounded-2xl bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/20 transition hover:scale-[1.01]"
                 >
-                  Save & Mark Complete
+                  Save & Back
                 </button>
               </div>
             </div>
@@ -522,15 +572,17 @@ function FormGrid({ children }: { children: React.ReactNode }) {
 function Input({
   label,
   full = false,
+  required = false,
   ...props
 }: React.InputHTMLAttributes<HTMLInputElement> & {
   label: string;
   full?: boolean;
+  required?: boolean;
 }) {
   return (
     <div className={full ? "md:col-span-2" : ""}>
       <label className="mb-2 block text-sm font-medium text-white/70">
-        {label}
+        {label} {required && <span className="text-red-400">*</span>}
       </label>
       <input
         {...props}
@@ -544,16 +596,18 @@ function Select({
   label,
   options,
   full = false,
+  required = false,
   ...props
 }: React.SelectHTMLAttributes<HTMLSelectElement> & {
   label: string;
   options: string[];
   full?: boolean;
+  required?: boolean;
 }) {
   return (
     <div className={full ? "md:col-span-2" : ""}>
       <label className="mb-2 block text-sm font-medium text-white/70">
-        {label}
+        {label} {required && <span className="text-red-400">*</span>}
       </label>
       <select
         {...props}

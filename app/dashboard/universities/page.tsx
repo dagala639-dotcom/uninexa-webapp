@@ -1,101 +1,145 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import LogoutButton from "../logout-button";
 import MobileNav from "../mobile-nav";
 
-const universities = [
-  {
-    name: "University of Toronto",
-    country: "Canada",
-    flag: "🇨🇦",
-    city: "Toronto",
-    programs: "Computer Science, Engineering, Business",
-    deadline: "15 Jan 2027",
-    fee: "$45,000 / year",
-    tag: "Highly ranked",
-  },
-  {
-    name: "University of Manchester",
-    country: "United Kingdom",
-    flag: "🇬🇧",
-    city: "Manchester",
-    programs: "Business, Engineering, Health Sciences",
-    deadline: "30 Jan 2027",
-    fee: "£29,000 / year",
-    tag: "Strong global brand",
-  },
-  {
-    name: "University of Melbourne",
-    country: "Australia",
-    flag: "🇦🇺",
-    city: "Melbourne",
-    programs: "Data Science, Medicine, Commerce",
-    deadline: "12 Feb 2027",
-    fee: "A$48,000 / year",
-    tag: "Popular student city",
-  },
-  {
-    name: "Arizona State University",
-    country: "United States",
-    flag: "🇺🇸",
-    city: "Arizona",
-    programs: "Software Engineering, Business, Design",
-    deadline: "1 Mar 2027",
-    fee: "$33,000 / year",
-    tag: "Flexible admissions",
-  },
-  {
-    name: "University of Debrecen",
-    country: "Hungary",
-    flag: "🇭🇺",
-    city: "Debrecen",
-    programs: "Medicine, Engineering, IT",
-    deadline: "15 Apr 2027",
-    fee: "€7,500 / year",
-    tag: "Affordable Europe",
-  },
-  {
-    name: "Constructor University",
-    country: "Germany",
-    flag: "🇩🇪",
-    city: "Bremen",
-    programs: "Computer Science, Robotics, AI",
-    deadline: "1 May 2027",
-    fee: "€20,000 / year",
-    tag: "Tech focused",
-  },
-];
+type University = {
+  id: string;
+  name: string;
+  country: string | null;
+  city: string | null;
+  website: string | null;
+  tuition: string | null;
+  application_fee: string | null;
+  programs: string[] | null;
+  deadline: string | null;
+  ranking: string | null;
+  description: string | null;
+  scholarships_available: boolean | null;
+  accepts_kcse: boolean | null;
+  accepts_duolingo: boolean | null;
+  visa_support: boolean | null;
+  featured: boolean | null;
+  status: string | null;
+};
+
+type ApplicationRow = {
+  id: string;
+  university_name: string | null;
+};
+
+function getFlag(country?: string | null) {
+  const flags: Record<string, string> = {
+    Kenya: "🇰🇪",
+    Canada: "🇨🇦",
+    "United Kingdom": "🇬🇧",
+    Australia: "🇦🇺",
+    Germany: "🇩🇪",
+    Hungary: "🇭🇺",
+    "United States": "🇺🇸",
+    USA: "🇺🇸",
+  };
+
+  return flags[country || ""] || "🎓";
+}
 
 export default function UniversitiesPage() {
   const supabase = useMemo(() => createClient(), []);
 
+  const [universities, setUniversities] = useState<University[]>([]);
+  const [applications, setApplications] = useState<ApplicationRow[]>([]);
   const [message, setMessage] = useState("");
   const [loadingUniversity, setLoadingUniversity] = useState("");
   const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  async function getCurrentUser() {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    return session?.user;
+  }
+
+  async function loadUniversities() {
+    const { data, error } = await supabase
+      .from("universities")
+      .select("*")
+      .eq("status", "Published")
+      .order("featured", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      setMessage(error.message);
+    } else {
+      setUniversities(data || []);
+    }
+
+    setLoading(false);
+  }
+
+  async function loadApplications() {
+    const user = await getCurrentUser();
+
+    if (!user) return;
+
+    const { data } = await supabase
+      .from("applications")
+      .select("id, university_name")
+      .eq("user_id", user.id);
+
+    setApplications(data || []);
+  }
+
+  useEffect(() => {
+    loadUniversities();
+    loadApplications();
+
+    const channel = supabase
+      .channel("student-universities-live")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "universities" },
+        () => loadUniversities()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const filteredUniversities = universities.filter((university) => {
-    const query = search.toLowerCase();
+    const query = search.toLowerCase().trim();
+
+    if (!query) return true;
 
     return (
       university.name.toLowerCase().includes(query) ||
-      university.country.toLowerCase().includes(query) ||
-      university.city.toLowerCase().includes(query) ||
-      university.programs.toLowerCase().includes(query)
+      university.country?.toLowerCase().includes(query) ||
+      university.city?.toLowerCase().includes(query) ||
+      university.programs?.join(" ").toLowerCase().includes(query)
     );
   });
 
-  async function addToApplications(
-    university: (typeof universities)[number]
-  ) {
+  const countries = Array.from(
+    new Set(universities.map((uni) => uni.country).filter(Boolean))
+  );
+
+  const countryCount = countries.length;
+
+  function isAdded(universityName: string) {
+    return applications.some((app) => app.university_name === universityName);
+  }
+
+  async function addToApplications(university: University) {
     setMessage("");
     setLoadingUniversity(university.name);
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const user = await getCurrentUser();
 
     if (!user) {
       setMessage("Please log in first.");
@@ -103,38 +147,41 @@ export default function UniversitiesPage() {
       return;
     }
 
-    const { data: existingApplication } = await supabase
-      .from("applications")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("university_name", university.name)
-      .maybeSingle();
+    const alreadyAdded = isAdded(university.name);
 
-    if (existingApplication) {
+    if (alreadyAdded) {
       setMessage(`${university.name} is already in your Applications.`);
       setLoadingUniversity("");
       return;
     }
 
-    const { error } = await supabase.from("applications").insert({
-      user_id: user.id,
-      university_name: university.name,
-      country: university.country,
-      city: university.city,
-      application_type: "Undergraduate",
-      program: "Undecided",
-      deadline: university.deadline,
-      status: "In progress",
-      progress: 0,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    });
+    const { data, error } = await supabase
+      .from("applications")
+      .insert({
+        user_id: user.id,
+        university_name: university.name,
+        country: university.country,
+        city: university.city,
+        application_type: "Undergraduate",
+        program: "Undecided",
+        deadline: university.deadline || "Not set",
+        status: "In progress",
+        progress: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .select("id, university_name")
+      .single();
 
     setLoadingUniversity("");
 
     if (error) {
       setMessage(error.message);
       return;
+    }
+
+    if (data) {
+      setApplications((prev) => [...prev, data]);
     }
 
     setMessage(`${university.name} added to Applications successfully.`);
@@ -160,7 +207,7 @@ export default function UniversitiesPage() {
               ["Universities", "/dashboard/universities"],
               ["Documents", "/dashboard/documents"],
               ["Scholarships", "/dashboard/scholarships"],
-              ["Scholarship Guide", "/dashboard/scholarship-guide"],
+              ["AI Matcher", "/dashboard/ai-matcher"],
               ["Messages", "/dashboard/messages"],
               ["Settings", "/dashboard/settings"],
             ].map(([name, href]) => (
@@ -194,8 +241,8 @@ export default function UniversitiesPage() {
               </h2>
 
               <p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/50">
-                Build your study-abroad application list and send universities
-                directly into your application tracker.
+                Build your study-abroad application list from universities added
+                by UniNexa admins.
               </p>
             </div>
 
@@ -222,14 +269,14 @@ export default function UniversitiesPage() {
                 </h3>
 
                 <p className="mt-5 max-w-xl text-sm leading-relaxed text-white/50">
-                  This is your university shortlist. As UniNexa gets partners,
-                  this becomes your official application marketplace.
+                  This is your university marketplace. Universities added from
+                  the admin panel appear here automatically.
                 </p>
 
                 <div className="mt-7 grid gap-3 sm:grid-cols-3">
                   {[
-                    [String(universities.length), "Featured schools"],
-                    ["6", "Countries"],
+                    [String(universities.length), "Published schools"],
+                    [String(countryCount), "Countries"],
                     ["1-click", "Applications"],
                   ].map(([value, label]) => (
                     <div
@@ -258,21 +305,29 @@ export default function UniversitiesPage() {
                 </div>
 
                 <div className="mt-5 space-y-3">
-                  {["Canada", "United Kingdom", "Australia", "Germany"].map(
-                    (country) => (
-                      <div
-                        key={country}
-                        className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3"
-                      >
-                        <span className="text-sm text-white/70">
-                          {country}
-                        </span>
+                  {countries.slice(0, 6).map((country) => (
+                    <button
+                      key={country}
+                      type="button"
+                      onClick={() => setSearch(country || "")}
+                      className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 transition hover:bg-white/[0.08]"
+                    >
+                      <span className="text-sm text-white/70">{country}</span>
 
-                        <span className="text-xs text-fuchsia-300">
-                          Available
-                        </span>
-                      </div>
-                    )
+                      <span className="text-xs text-fuchsia-300">
+                        Available
+                      </span>
+                    </button>
+                  ))}
+
+                  {search && (
+                    <button
+                      type="button"
+                      onClick={() => setSearch("")}
+                      className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white/50 transition hover:bg-white/[0.06]"
+                    >
+                      Clear search
+                    </button>
                   )}
                 </div>
               </div>
@@ -299,72 +354,137 @@ export default function UniversitiesPage() {
               </Link>
             </div>
 
-            <div className="grid gap-5 xl:grid-cols-2">
-              {filteredUniversities.map((university) => (
-                <div
-                  key={university.name}
-                  className="group rounded-[2rem] border border-white/10 bg-gradient-to-br from-black/30 to-white/[0.03] p-5 transition hover:-translate-y-1 hover:border-fuchsia-400/30 hover:bg-white/[0.07] hover:shadow-[0_0_50px_rgba(217,70,239,0.12)]"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex gap-4">
-                      <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-3xl">
-                        {university.flag}
+            {loading ? (
+              <div className="rounded-[2rem] border border-white/10 bg-black/20 p-8 text-white/60">
+                Loading universities...
+              </div>
+            ) : (
+              <div className="grid gap-5 xl:grid-cols-2">
+                {filteredUniversities.map((university) => {
+                  const added = isAdded(university.name);
+
+                  return (
+                    <div
+                      key={university.id}
+                      className={`group rounded-[2rem] border p-5 transition ${
+                        added
+                          ? "border-white/10 bg-white/[0.03] opacity-70"
+                          : "border-white/10 bg-gradient-to-br from-black/30 to-white/[0.03] hover:-translate-y-1 hover:border-fuchsia-400/30 hover:bg-white/[0.07] hover:shadow-[0_0_50px_rgba(217,70,239,0.12)]"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex gap-4">
+                          <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/10 text-3xl">
+                            {getFlag(university.country)}
+                          </div>
+
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-fuchsia-300">
+                              {university.country || "Country not set"}
+                            </p>
+
+                            <h4 className="mt-2 text-xl font-semibold">
+                              {university.name}
+                            </h4>
+
+                            <p className="mt-1 text-sm text-white/40">
+                              {university.city || "City not set"}
+                            </p>
+                          </div>
+                        </div>
+
+                        <span
+                          className={`rounded-full border px-3 py-1 text-xs ${
+                            added
+                              ? "border-white/10 bg-white/10 text-white/45"
+                              : "border-emerald-400/20 bg-emerald-500/10 text-emerald-300"
+                          }`}
+                        >
+                          {added
+                            ? "Added"
+                            : university.featured
+                            ? "Featured"
+                            : "Available"}
+                        </span>
                       </div>
 
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.25em] text-fuchsia-300">
-                          {university.country}
-                        </p>
+                      <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                        <Info
+                          label="Programs"
+                          value={university.programs?.join(", ") || "Not set"}
+                        />
+                        <Info
+                          label="Deadline"
+                          value={university.deadline || "Not set"}
+                        />
+                        <Info
+                          label="Tuition"
+                          value={university.tuition || "Not set"}
+                        />
+                      </div>
 
-                        <h4 className="mt-2 text-xl font-semibold">
-                          {university.name}
-                        </h4>
+                      <div className="mt-5 flex flex-wrap gap-2">
+                        {university.scholarships_available && (
+                          <Badge text="Scholarships" />
+                        )}
+                        {university.accepts_kcse && (
+                          <Badge text="KCSE accepted" />
+                        )}
+                        {university.accepts_duolingo && (
+                          <Badge text="Duolingo accepted" />
+                        )}
+                        {university.visa_support && (
+                          <Badge text="Visa support" />
+                        )}
+                      </div>
 
-                        <p className="mt-1 text-sm text-white/40">
-                          {university.city}
-                        </p>
+                      <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+                        <button
+                          type="button"
+                          onClick={() => addToApplications(university)}
+                          disabled={loadingUniversity === university.name || added}
+                          className={`flex-1 rounded-2xl px-5 py-4 text-sm font-semibold transition ${
+                            added
+                              ? "cursor-not-allowed bg-white/10 text-white/40"
+                              : "bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500 text-white shadow-lg shadow-fuchsia-500/20 hover:scale-[1.01] disabled:opacity-50"
+                          }`}
+                        >
+                          {added
+                            ? "Added"
+                            : loadingUniversity === university.name
+                            ? "Adding..."
+                            : "Add to Applications"}
+                        </button>
+
+                        {university.website ? (
+                          <a
+                            href={university.website}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-center text-sm font-semibold text-white/70 transition hover:bg-white/10"
+                          >
+                            View site
+                          </a>
+                        ) : (
+                          <button
+                            type="button"
+                            className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-sm font-semibold text-white/40"
+                          >
+                            No site
+                          </button>
+                        )}
                       </div>
                     </div>
+                  );
+                })}
 
-                    <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-300">
-                      {university.tag}
-                    </span>
+                {filteredUniversities.length === 0 && (
+                  <div className="rounded-[2rem] border border-white/10 bg-black/20 p-6 text-white/60 xl:col-span-2">
+                    No universities match your search.
                   </div>
-
-                  <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                    <Info label="Programs" value={university.programs} />
-                    <Info label="Deadline" value={university.deadline} />
-                    <Info label="Tuition" value={university.fee} />
-                  </div>
-
-                  <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                    <button
-                      type="button"
-                      onClick={() => addToApplications(university)}
-                      disabled={loadingUniversity === university.name}
-                      className="flex-1 rounded-2xl bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500 px-5 py-4 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/20 transition hover:scale-[1.01] disabled:opacity-50"
-                    >
-                      {loadingUniversity === university.name
-                        ? "Adding..."
-                        : "Add to Applications"}
-                    </button>
-
-                    <button
-                      type="button"
-                      className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-sm font-semibold text-white/70 transition hover:bg-white/10"
-                    >
-                      View details
-                    </button>
-                  </div>
-                </div>
-              ))}
-
-              {filteredUniversities.length === 0 && (
-                <div className="rounded-[2rem] border border-white/10 bg-black/20 p-6 text-white/60 xl:col-span-2">
-                  No universities match your search.
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </div>
         </section>
       </div>
@@ -374,13 +494,15 @@ export default function UniversitiesPage() {
   );
 }
 
-function Info({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function Badge({ text }: { text: string }) {
+  return (
+    <span className="rounded-full border border-fuchsia-400/20 bg-fuchsia-500/10 px-3 py-1 text-xs text-fuchsia-200">
+      {text}
+    </span>
+  );
+}
+
+function Info({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
       <p className="text-xs text-white/35">{label}</p>
