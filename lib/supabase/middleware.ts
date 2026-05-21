@@ -14,8 +14,9 @@ export async function updateSession(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
+
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
+          cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           );
 
@@ -31,7 +32,20 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const pathname = request.nextUrl.pathname;
+
+  if (
+    !user &&
+    pathname.startsWith("/dashboard")
+  ) {
+    return NextResponse.redirect(
+      new URL("/login", request.url)
+    );
+  }
 
   return response;
 }

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "../../../logout-button";
 import MobileNav from "../../../mobile-nav";
-import { getUniversityQuestions } from "../university-questions";
+import { getUniversityQuestions } from "@/lib/universities-questions";
 import AcademicsForm from "./academics-form";
 
 export default async function AcademicsPage({

@@ -1,26 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import {
-  CheckCircle2,
-  HelpCircle,
-} from "lucide-react";
+import { CheckCircle2, HelpCircle } from "lucide-react";
 
 import { createClient } from "@/lib/supabase/server";
+import { getUniversityQuestions } from "@/lib/universities-questions";
 import LogoutButton from "../../logout-button";
 import MobileNav from "../../mobile-nav";
-
-const sections = [
-  "Application Information",
-  "General",
-  "Academics",
-  "Testing",
-  "Activities",
-  "Family",
-  "Documents",
-  "Recommendations",
-  "Billing",
-  "Review & Submit",
-];
 
 const sectionRoutes = (id: string): Record<string, string> => ({
   "Application Information": `/dashboard/applications/${id}`,
@@ -72,6 +57,21 @@ export default async function ApplicationWorkspacePage({
 
   if (!application) redirect("/dashboard/applications");
 
+  const universityQuestions = getUniversityQuestions(application.university_name);
+
+  const sections = [
+    "Application Information",
+    ...(universityQuestions.general?.length ? ["General"] : []),
+    ...(universityQuestions.academics?.length ? ["Academics"] : []),
+    ...(universityQuestions.testing?.length ? ["Testing"] : []),
+    ...(universityQuestions.activities?.length ? ["Activities"] : []),
+    ...(universityQuestions.family?.length ? ["Family"] : []),
+    ...(universityQuestions.documents?.length ? ["Documents"] : []),
+    ...(universityQuestions.recommendations?.length ? ["Recommendations"] : []),
+    "Billing",
+    "Review & Submit",
+  ];
+
   const { data: forms } = await supabase
     .from("application_forms")
     .select("section, answers")
@@ -101,9 +101,7 @@ export default async function ApplicationWorkspacePage({
 
   const completedSections = completion.filter(Boolean).length;
 
-  const progress = Math.round(
-    (completedSections / completion.length) * 100
-  );
+  const progress = Math.round((completedSections / completion.length) * 100);
 
   const routes = sectionRoutes(application.id);
 
@@ -134,9 +132,7 @@ export default async function ApplicationWorkspacePage({
             </div>
 
             <div className="mt-8 rounded-3xl border border-white/10 bg-white/[0.04] p-5">
-              <p className="text-sm text-white/45">
-                Application progress
-              </p>
+              <p className="text-sm text-white/45">Application progress</p>
 
               <h3 className="mt-2 text-4xl font-bold">{progress}%</h3>
 
@@ -214,9 +210,7 @@ export default async function ApplicationWorkspacePage({
 
           <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl sm:p-6">
             <div className="mb-8">
-              <h3 className="text-2xl font-semibold">
-                Application Overview
-              </h3>
+              <h3 className="text-2xl font-semibold">Application Overview</h3>
 
               <p className="mt-2 text-sm text-white/45">
                 Review your current application details and continue from any
@@ -245,16 +239,13 @@ export default async function ApplicationWorkspacePage({
                 value={application.status || "In progress"}
               />
 
-              <InfoCard
-                label="Progress"
-                value={`${progress}% complete`}
-              />
+              <InfoCard label="Progress" value={`${progress}% complete`} />
 
               <InfoCard
                 label="Next recommended step"
                 value={
                   completion[1]
-                    ? "Continue to Academics"
+                    ? "Continue to next section"
                     : "Complete General section"
                 }
               />
@@ -283,16 +274,12 @@ export default async function ApplicationWorkspacePage({
             <div className="flex items-center gap-3">
               <HelpCircle className="h-5 w-5 text-fuchsia-300" />
 
-              <h3 className="text-xl font-semibold">
-                Help & Support
-              </h3>
+              <h3 className="text-xl font-semibold">Help & Support</h3>
             </div>
 
             <div className="mt-5 space-y-4">
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                <p className="font-semibold">
-                  Autosave enabled
-                </p>
+                <p className="font-semibold">Autosave enabled</p>
 
                 <p className="mt-2 text-sm leading-6 text-white/50">
                   Your application sections save automatically as you complete
@@ -301,12 +288,10 @@ export default async function ApplicationWorkspacePage({
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                <p className="font-semibold">
-                  Submission checklist
-                </p>
+                <p className="font-semibold">Submission checklist</p>
 
                 <ul className="mt-3 space-y-2 text-sm text-white/55">
-                  <li>• Complete each section</li>
+                  <li>• Complete each required section</li>
                   <li>• Upload required documents</li>
                   <li>• Review billing information</li>
                   <li>• Submit from Review & Submit</li>
@@ -322,13 +307,7 @@ export default async function ApplicationWorkspacePage({
   );
 }
 
-function InfoCard({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function InfoCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-black/20 p-5">
       <p className="text-sm text-white/45">{label}</p>

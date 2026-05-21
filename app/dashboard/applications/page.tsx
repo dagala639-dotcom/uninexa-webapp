@@ -16,9 +16,7 @@ async function deleteApplication(formData: FormData) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
-    redirect("/login");
-  }
+  if (!user) redirect("/login");
 
   await supabase
     .from("university_applicants")
@@ -54,57 +52,51 @@ async function submitToUniversity(formData: FormData) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
-    redirect("/login");
-  }
+  if (!user) redirect("/login");
 
-  const { data: universityAccount, error: universityError } =
-  await supabase
+  const { data: universityAccount, error: universityError } = await supabase
     .from("university_accounts")
     .select("id, university_name")
     .ilike("university_name", universityName)
     .maybeSingle();
 
-if (universityError) {
-  throw new Error(universityError.message);
-}
+  if (universityError) {
+    throw new Error(universityError.message);
+  }
 
-if (!universityAccount) {
-  throw new Error(
-    `No university account found for ${universityName}`
-  );
-}
+  if (!universityAccount) {
+    throw new Error(`No university account found for ${universityName}`);
+  }
 
-await supabase
-  .from("applications")
-  .update({
-    status: "Submitted",
-    progress: 100,
-    submitted_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  })
-  .eq("id", applicationId)
-  .eq("user_id", user.id);
-
-const { error: applicantError } = await supabase
-  .from("university_applicants")
-  .upsert(
-    {
-      university_account_id: universityAccount.id,
-      application_id: applicationId,
-      student_user_id: user.id,
-      status: "New applicant",
+  await supabase
+    .from("applications")
+    .update({
+      status: "Submitted",
+      progress: 100,
+      submitted_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    },
-    {
-      onConflict:
-        "university_account_id,application_id",
-    }
-  );
+    })
+    .eq("id", applicationId)
+    .eq("user_id", user.id);
 
-if (applicantError) {
-  throw new Error(applicantError.message);
-}
+  const { error: applicantError } = await supabase
+    .from("university_applicants")
+    .upsert(
+      {
+        university_account_id: universityAccount.id,
+        application_id: applicationId,
+        student_user_id: user.id,
+        status: "New applicant",
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: "university_account_id,application_id",
+      }
+    );
+
+  if (applicantError) {
+    throw new Error(applicantError.message);
+  }
 
   revalidatePath("/dashboard/applications");
   revalidatePath("/university");
@@ -118,9 +110,7 @@ export default async function ApplicationsPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
-    redirect("/login");
-  }
+  if (!user) redirect("/login");
 
   const { data: applications } = await supabase
     .from("applications")
@@ -128,26 +118,65 @@ export default async function ApplicationsPage() {
     .eq("user_id", user.id)
     .order("created_at", { ascending: false });
 
-  const totalApplications = applications?.length || 0;
+  const applicationIds = applications?.map((app) => app.id) || [];
 
-  const inProgress =
-    applications?.filter((app) => app.status === "In progress").length || 0;
+  const { data: forms } =
+    applicationIds.length > 0
+      ? await supabase
+          .from("application_forms")
+          .select("application_id, section, answers")
+          .eq("user_id", user.id)
+          .in("application_id", applicationIds)
+      : { data: [] };
 
-  const ready =
-    applications?.filter((app) => (app.progress || 0) >= 80).length || 0;
+  const applicationsWithPrograms =
+    applications?.map((app) => {
+      const academicsForm = forms?.find(
+        (form) =>
+          form.application_id === app.id && form.section === "academics"
+      );
 
-  const submitted =
-    applications?.filter((app) => app.status === "Submitted").length || 0;
+      const answers = academicsForm?.answers as Record<string, string> | null;
+
+      const selectedProgram =
+        answers?.program ||
+        answers?.first_choice_program ||
+        answers?.uoft_course_selection ||
+        answers?.["uoft-course-selection"] ||
+        app.program ||
+        "Undecided";
+
+      return {
+        ...app,
+        selected_program: selectedProgram,
+      };
+    }) || [];
+
+  const totalApplications = applicationsWithPrograms.length;
+
+  const inProgress = applicationsWithPrograms.filter(
+    (app) => app.status === "In progress"
+  ).length;
+
+  const ready = applicationsWithPrograms.filter(
+    (app) => (app.progress || 0) >= 80
+  ).length;
+
+  const submitted = applicationsWithPrograms.filter(
+    (app) => app.status === "Submitted"
+  ).length;
 
   const averageProgress =
     totalApplications > 0
       ? Math.round(
-          applications!.reduce((sum, app) => sum + (app.progress || 0), 0) /
-            totalApplications
+          applicationsWithPrograms.reduce(
+            (sum, app) => sum + (app.progress || 0),
+            0
+          ) / totalApplications
         )
       : 0;
 
-  const nextApplication = applications?.[0];
+  const nextApplication = applicationsWithPrograms[0];
 
   const stats = [
     ["Total applications", String(totalApplications)],
@@ -259,7 +288,7 @@ export default async function ApplicationsPage() {
                       Deadline: {nextApplication.deadline || "Not set"}
                     </p>
                     <p className="mt-1 text-sm text-white/40">
-                      Program: {nextApplication.program || "Undecided"}
+                      Program: {nextApplication.selected_program}
                     </p>
 
                     <Link
@@ -310,7 +339,7 @@ export default async function ApplicationsPage() {
                 </Link>
               </div>
 
-              {!applications || applications.length === 0 ? (
+              {applicationsWithPrograms.length === 0 ? (
                 <div className="rounded-3xl border border-white/10 bg-black/20 p-8">
                   <h4 className="text-2xl font-semibold">
                     No applications yet.
@@ -329,7 +358,7 @@ export default async function ApplicationsPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {applications.map((app) => {
+                  {applicationsWithPrograms.map((app) => {
                     const isSubmitted = app.status === "Submitted";
 
                     return (
@@ -346,7 +375,7 @@ export default async function ApplicationsPage() {
                               {app.university_name}
                             </h4>
                             <p className="mt-1 text-sm text-white/45">
-                              {app.program || "Undecided"}
+                              {app.selected_program}
                             </p>
                           </div>
 
@@ -403,21 +432,22 @@ export default async function ApplicationsPage() {
                           </p>
 
                           <div className="flex flex-col gap-3 sm:flex-row">
-                            <form action={deleteApplication}>
-                              <input
-                                type="hidden"
-                                name="application_id"
-                                value={app.id}
-                              />
+                            {!isSubmitted && (
+  <form action={deleteApplication}>
+    <input
+      type="hidden"
+      name="application_id"
+      value={app.id}
+    />
 
-                              <button
-                                type="submit"
-                                className="rounded-2xl border border-red-400/20 bg-red-500/10 px-5 py-3 text-sm font-semibold text-red-300 transition hover:bg-red-500/20"
-                              >
-                                Delete
-                              </button>
-                            </form>
-
+    <button
+      type="submit"
+      className="rounded-2xl border border-red-400/20 bg-red-500/10 px-5 py-3 text-sm font-semibold text-red-300 transition hover:bg-red-500/20"
+    >
+      Delete
+    </button>
+  </form>
+)}
                             <Link
                               href={`/dashboard/applications/${app.id}`}
                               className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-center text-sm font-semibold text-white/70 transition hover:bg-white/10"

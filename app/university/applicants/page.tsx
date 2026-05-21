@@ -167,31 +167,44 @@ export default function UniversityApplicantsPage() {
   useEffect(() => {
     loadApplicants();
   }, []);
+async function updateApplicantStatus(
+  applicantId: string,
+  applicationId: string,
+  status: string
+) {
+  setSavingId(applicantId);
+  setMessage("");
 
-  async function updateApplicantStatus(
-    applicantId: string,
-    status: string
-  ) {
-    setSavingId(applicantId);
-    setMessage("");
+  const { error: applicantError } = await supabase
+    .from("university_applicants")
+    .update({
+      status,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", applicantId);
 
-    const { error } = await supabase
-      .from("university_applicants")
-      .update({
-        status,
-        updated_at:
-          new Date().toISOString(),
-      })
-      .eq("id", applicantId);
-
-    if (error) {
-      setMessage(error.message);
-    } else {
-      await loadApplicants();
-    }
-
+  if (applicantError) {
+    setMessage(applicantError.message);
     setSavingId("");
+    return;
   }
+
+  const { error: applicationError } = await supabase
+    .from("applications")
+    .update({
+      status,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", applicationId);
+
+  if (applicationError) {
+    setMessage(applicationError.message);
+  } else {
+    await loadApplicants();
+  }
+
+  setSavingId("");
+}
 
   function getApplication(
     applicationId: string
@@ -446,12 +459,13 @@ export default function UniversityApplicantsPage() {
                           item.status ||
                           "New applicant"
                         }
-                        onChange={(e) =>
-                          updateApplicantStatus(
-                            item.id,
-                            e.target.value
-                          )
-                        }
+                       onChange={(e) =>
+  updateApplicantStatus(
+    item.id,
+    item.application_id,
+    e.target.value
+  )
+}
                         disabled={
                           savingId === item.id
                         }
