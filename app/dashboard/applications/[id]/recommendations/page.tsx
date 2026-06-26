@@ -40,7 +40,7 @@ export default async function RecommendationsPage({
     .maybeSingle();
 
   const questions =
-    getUniversityQuestions(application.university_name).recommendations;
+    getUniversityQuestions(application.university_name).recommendations || [];
 
   const answers = draft?.answers || {};
 

@@ -7,7 +7,8 @@ import { saveFamilyDraft } from "./actions";
 
 type Question = {
   id: string;
-  label: string;
+  label?: string;
+  question?: string;
   type: string;
   required?: boolean;
   options?: string[];
@@ -193,12 +194,12 @@ export default function FamilyForm({
           <Field
             key={question.id}
             id={question.id}
-            label={question.label}
+            label={question.label || question.question || ""}
             type={question.type}
             required={question.required}
             options={question.options}
             value={formData[question.id] || ""}
-            placeholder={question.placeholder}
+            placeholder={question.placeholder || question.label || question.question}
             onChange={handleChange}
           />
         ))}

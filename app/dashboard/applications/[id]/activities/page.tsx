@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "../../../logout-button";
 import MobileNav from "../../../mobile-nav";
-import { getUniversityQuestions } from "../university-questions";
+import { getUniversityQuestions } from "@/lib/universities-questions";
 import ActivitiesForm from "./activities-form";
 
 export default async function ActivitiesPage({
@@ -45,7 +45,7 @@ export default async function ActivitiesPage({
     .maybeSingle();
 
   const questions =
-    getUniversityQuestions(application.university_name).activities;
+    getUniversityQuestions(application.university_name).activities || [];
 
   const answers = draft?.answers || {};
 

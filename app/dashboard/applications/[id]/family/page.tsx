@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "../../../logout-button";
 import MobileNav from "../../../mobile-nav";
-import { getUniversityQuestions } from "../university-questions";
+import { getUniversityQuestions } from "@/lib/universities-questions";
 import FamilyForm from "./family-form";
 
 export default async function FamilyPage({
@@ -46,7 +46,7 @@ export default async function FamilyPage({
     .maybeSingle();
 
   const questions =
-    getUniversityQuestions(application.university_name).family;
+    getUniversityQuestions(application.university_name).family || [];
 
   const answers = draft?.answers || {};
 

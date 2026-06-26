@@ -140,7 +140,7 @@ export default function DocumentsPage() {
 
     const cleanFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
     const safeDocumentType = documentType.replace(/[^a-zA-Z0-9-]/g, "-");
-    const filePath = `${user.id}/${safeDocumentType}/${Date.now()}-${cleanFileName}`;
+    const filePath = `${user.id}/${safeDocumentType}/${file.lastModified}-${cleanFileName}`;
 
     const existing = documents.find(
       (doc) => doc.document_type === documentType

@@ -1,11 +1,18 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import { createClient } from "@/lib/supabase/server";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+type MatcherRequest = {
+  program?: string;
+  budget?: string;
+  countryPreference?: string;
+  scholarshipNeed?: string;
+  kcseGrade?: string;
+  englishTest?: string;
+  interests?: string;
+};
 
-function fallbackMatcher(body: any) {
+function fallbackMatcher(body: MatcherRequest) {
   const program = String(body?.program || "your chosen program");
   const budget = String(body?.budget || "your budget");
   const countryPreference = String(body?.countryPreference || "multiple countries");
@@ -99,12 +106,30 @@ function fallbackMatcher(body: any) {
 }
 
 export async function POST(request: Request) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json(
+      { error: "Please sign in to use the AI matcher." },
+      { status: 401 }
+    );
+  }
+
+  let body: MatcherRequest = {};
+
   try {
-    const body = await request.json();
+    body = (await request.json()) as MatcherRequest;
 
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json(fallbackMatcher(body));
     }
+
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
 
     const prompt = `
 You are UniNexa AI, an admissions advisor for Kenyan and East African students.
@@ -151,8 +176,10 @@ Return a JSON object only with this structure:
     const result = completion.choices[0]?.message?.content;
 
     return NextResponse.json(JSON.parse(result || "{}"));
-  } catch (error: any) {
-    const message = String(error?.message || "");
+  } catch (error: unknown) {
+    const message = String(
+      error instanceof Error ? error.message : error || ""
+    );
 
     if (
       message.includes("quota") ||
@@ -161,7 +188,6 @@ Return a JSON object only with this structure:
       message.includes("Incorrect API key") ||
       message.includes("401")
     ) {
-      const body = await request.json().catch(() => ({}));
       return NextResponse.json(fallbackMatcher(body));
     }
 

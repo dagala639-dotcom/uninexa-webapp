@@ -87,7 +87,7 @@ export default function LoginPage() {
         </div>
 
         <div className="text-xs text-white/30">
-          © 2026 UniNexa. All rights reserved.
+          Copyright 2026 UniNexa. All rights reserved.
         </div>
       </section>
 
@@ -172,7 +172,7 @@ export default function LoginPage() {
               href="/signup"
               className="mt-3 inline-block text-sm font-semibold text-fuchsia-300 hover:text-fuchsia-200"
             >
-              Create UniNexa account →
+              Create UniNexa account {"->"}
             </Link>
           </div>
         </div>

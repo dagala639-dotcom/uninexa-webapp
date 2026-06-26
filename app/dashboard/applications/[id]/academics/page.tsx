@@ -45,7 +45,7 @@ export default async function AcademicsPage({
     .maybeSingle();
 
   const questions =
-    getUniversityQuestions(application.university_name).academics;
+    getUniversityQuestions(application?.university_name).academics || [];
 
   const answers = draft?.answers || {};
 

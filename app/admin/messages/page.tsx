@@ -1,275 +1,507 @@
+"use client";
+
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { ArrowLeft, Search, Send, UserRound } from "lucide-react";
 
-export default async function AdminMessagesPage() {
-  const supabase = await createClient();
+type Conversation = {
+  id: string;
+  user_id?: string | null;
+  title?: string | null;
+  category?: string | null;
+  student_user_id?: string | null;
+  student_id?: string | null;
+  assigned_staff_user_id?: string | null;
+  assigned_staff_id?: string | null;
+  status?: string | null;
+  last_message?: string | null;
+  last_message_at?: string | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+};
 
- const {
-  data: { session },
-} = await supabase.auth.getSession();
+type Message = {
+  id: string;
+  conversation_id: string;
+  sender_user_id?: string | null;
+  sender_id?: string | null;
+  sender_role?: string | null;
+  body?: string | null;
+  message?: string | null;
+  created_at: string;
+};
 
-const user = session?.user;
-  if (!user) {
-    redirect("/login");
+type Profile = {
+  user_id: string;
+  full_name: string | null;
+  email: string | null;
+  phone?: string | null;
+  county?: string | null;
+};
+
+type Application = {
+  id: string;
+  user_id: string;
+  university_name: string | null;
+  program: string | null;
+  status: string | null;
+  progress: number | null;
+};
+
+export default function AdminMessagesPage() {
+  const supabase = useMemo(() => createClient(), []);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+
+  const [loading, setLoading] = useState(true);
+  const [adminId, setAdminId] = useState("");
+  const [search, setSearch] = useState("");
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [selectedConversation, setSelectedConversation] =
+    useState<Conversation | null>(null);
+  const [newMessage, setNewMessage] = useState("");
+  const [sendError, setSendError] = useState("");
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedConversation) return;
+
+    loadMessages(selectedConversation.id);
+
+    const channel = supabase
+      .channel(`admin-messages-${selectedConversation.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `conversation_id=eq.${selectedConversation.id}`,
+        },
+        (payload) => {
+          const incoming = payload.new as Message;
+
+          setMessages((prev) => {
+            if (prev.some((msg) => msg.id === incoming.id)) return prev;
+            return [...prev, incoming];
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [selectedConversation, supabase]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  function getStudentId(conversation: Conversation) {
+    return conversation.student_user_id || conversation.user_id || "";
   }
 
-  const { data: roleData } = await supabase
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", user.id)
-    .single();
-
-  if (roleData?.role !== "admin") {
-    redirect("/dashboard");
+  function getMessageText(message: Message) {
+    return message.body || message.message || "";
   }
 
-  const { data: conversations, error } = await supabase
-    .from("conversations")
-    .select("*")
-    .order("updated_at", { ascending: false });
+  function getProfile(userId: string) {
+    return profiles.find((profile) => profile.user_id === userId);
+  }
+
+  function getStudentApplication(userId: string) {
+    return applications.find((app) => app.user_id === userId);
+  }
+
+  async function loadData() {
+    setLoading(true);
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    setAdminId(user.id);
+
+    const { data: conversationData } = await supabase
+      .from("conversations")
+      .select("*")
+      .order("updated_at", { ascending: false });
+
+    const studentIds =
+      conversationData
+        ?.map((item: Conversation) => item.student_user_id || item.student_id || "")
+        .filter(Boolean) || [];
+
+    let profileData: Profile[] = [];
+    let applicationData: Application[] = [];
+
+    if (studentIds.length > 0) {
+      const { data: profilesResult } = await supabase
+        .from("profiles")
+        .select("user_id, full_name, email, phone, county")
+        .in("user_id", studentIds);
+
+      const { data: applicationsResult } = await supabase
+        .from("applications")
+        .select("id, user_id, university_name, program, status, progress")
+        .in("user_id", studentIds);
+
+      profileData = profilesResult || [];
+      applicationData = applicationsResult || [];
+    }
+
+    setConversations(conversationData || []);
+    setProfiles(profileData);
+    setApplications(applicationData);
+
+    if (conversationData?.length && !selectedConversation) {
+      setSelectedConversation(conversationData[0]);
+    }
+
+    setLoading(false);
+  }
+
+  async function loadMessages(conversationId: string) {
+    const { data } = await supabase
+      .from("messages")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: true });
+
+    setMessages(data || []);
+  }
+
+  async function openConversation(conversation: Conversation) {
+    setSelectedConversation(conversation);
+    await loadMessages(conversation.id);
+  }
+
+  async function sendMessage() {
+    if (!newMessage.trim() || !selectedConversation || !adminId) return;
+
+    const text = newMessage.trim();
+    setNewMessage("");
+    setSendError("");
+
+    const { data, error } = await supabase
+      .from("messages")
+      .insert({
+        conversation_id: selectedConversation.id,
+        sender: "adminId",
+        sender_user_id: adminId,
+        sender_role: "admin",
+        body: text,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      setSendError(error.message);
+      setNewMessage(text);
+      return;
+    }
+
+    if (data) {
+      setMessages((prev) => {
+        if (prev.some((msg) => msg.id === data.id)) return prev;
+        return [...prev, data as Message];
+      });
+    }
+
+    await supabase
+      .from("conversations")
+      .update({
+        last_message: text,
+        last_message_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", selectedConversation.id);
+
+    setConversations((prev) =>
+      prev.map((conversation) =>
+        conversation.id === selectedConversation.id
+          ? {
+              ...conversation,
+              last_message: text,
+              last_message_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }
+          : conversation
+      )
+    );
+  }
+
+  const filteredConversations = conversations.filter((conversation) => {
+    const studentId = getStudentId(conversation);
+    const profile = getProfile(studentId);
+    const app = getStudentApplication(studentId);
+    const term = search.toLowerCase().trim();
+
+    if (!term) return true;
+
+    return (
+      profile?.full_name?.toLowerCase().includes(term) ||
+      profile?.email?.toLowerCase().includes(term) ||
+      app?.university_name?.toLowerCase().includes(term) ||
+      app?.status?.toLowerCase().includes(term) ||
+      conversation.last_message?.toLowerCase().includes(term)
+    );
+  });
+
+  const selectedStudentId = selectedConversation
+    ? getStudentId(selectedConversation)
+    : "";
+
+  const selectedProfile = getProfile(selectedStudentId);
+  const selectedApplication = getStudentApplication(selectedStudentId);
+
+  if (loading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#050816] text-white">
+        Loading messages...
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-[#050816] text-white">
       <div className="flex min-h-screen">
-        {/* SIDEBAR */}
-        <aside className="hidden w-72 border-r border-white/10 bg-white/[0.03] p-6 backdrop-blur-xl lg:block">
-          <div className="mb-10">
-            <h1 className="bg-gradient-to-r from-fuchsia-400 via-purple-300 to-blue-400 bg-clip-text text-xl font-bold uppercase tracking-[0.35em] text-transparent">
-              UniNexa
-            </h1>
+        <aside className="w-[380px] shrink-0 border-r border-white/10 bg-[#080D1A]">
+          <div className="border-b border-white/10 p-6">
+            <Link
+              href="/admin"
+              className="mb-5 inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/70 hover:bg-white/10"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to admin
+            </Link>
+
+            <h1 className="text-3xl font-bold">Messages</h1>
 
             <p className="mt-2 text-sm text-white/40">
-              Admin Messages Center
-            </p>
-          </div>
-
-          <nav className="space-y-2">
-            {[
-              ["Overview", "/admin"],
-              ["Students", "/admin/students"],
-              ["Documents", "/admin/documents"],
-              ["KCSE Verification", "/admin/kcse-verification"],
-              ["Applications", "/admin/applications"],
-              ["Messages", "/admin/messages"],
-              ["Scholarships", "/admin/scholarships"],
-              ["Settings", "/admin/settings"],
-            ].map(([name, href]) => (
-              <Link
-                key={href}
-                href={href}
-                className={`block rounded-2xl px-4 py-3 text-sm transition ${
-                  href === "/admin/messages"
-                    ? "bg-white/10 text-white"
-                    : "text-white/50 hover:bg-white/5 hover:text-white"
-                }`}
-              >
-                {name}
-              </Link>
-            ))}
-          </nav>
-
-          <Link
-            href="/admin"
-            className="mt-8 block rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white/60 transition hover:bg-white/[0.06]"
-          >
-            Back to admin dashboard
-          </Link>
-        </aside>
-
-        {/* MAIN */}
-        <section className="relative flex-1 overflow-hidden p-6 lg:p-10">
-          <div className="absolute -left-20 top-10 h-72 w-72 rounded-full bg-fuchsia-600/20 blur-3xl" />
-          <div className="absolute right-0 top-52 h-96 w-96 rounded-full bg-blue-500/10 blur-3xl" />
-
-          <div className="relative mb-10">
-            <p className="text-sm font-medium text-fuchsia-300">
-              Communication Center
+              Student support inbox
             </p>
 
-            <h1 className="mt-3 text-4xl font-bold tracking-tight lg:text-6xl">
-              Student messages.
-            </h1>
+            <div className="relative mt-5">
+              <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
 
-            <p className="mt-4 max-w-3xl text-sm leading-relaxed text-white/50">
-              Monitor conversations, support requests, admissions guidance,
-              scholarship inquiries, and realtime communication between
-              UniNexa admins and students.
-            </p>
-          </div>
-
-          {/* STATS */}
-          <div className="mb-8 grid gap-4 md:grid-cols-4">
-            <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
-              <p className="text-3xl font-bold">
-                {conversations?.length || 0}
-              </p>
-
-              <p className="mt-2 text-sm text-white/40">
-                Total conversations
-              </p>
-            </div>
-
-            <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
-              <p className="text-3xl font-bold">
-                {
-                  conversations?.filter(
-                    (c) =>
-                      c.status === "unread" ||
-                      c.admin_read === false
-                  ).length || 0
-                }
-              </p>
-
-              <p className="mt-2 text-sm text-white/40">
-                Unread conversations
-              </p>
-            </div>
-
-            <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
-              <p className="text-3xl font-bold">
-                {
-                  conversations?.filter(
-                    (c) => c.priority === "high"
-                  ).length || 0
-                }
-              </p>
-
-              <p className="mt-2 text-sm text-white/40">
-                High priority
-              </p>
-            </div>
-
-            <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
-              <p className="text-3xl font-bold">
-                {
-                  conversations?.filter(
-                    (c) => c.category === "Scholarship"
-                  ).length || 0
-                }
-              </p>
-
-              <p className="mt-2 text-sm text-white/40">
-                Scholarship chats
-              </p>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search students..."
+                className="w-full rounded-2xl border border-white/10 bg-white/[0.04] py-4 pl-11 pr-4 text-sm outline-none placeholder:text-white/30 focus:border-fuchsia-400/40"
+              />
             </div>
           </div>
 
-          {/* CONVERSATIONS */}
-          <div className="rounded-[2.5rem] border border-white/10 bg-gradient-to-br from-white/[0.08] via-white/[0.04] to-white/[0.02] p-6 shadow-[0_0_90px_rgba(168,85,247,0.12)] backdrop-blur-2xl">
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <h2 className="text-2xl font-semibold">
-                  Conversation inbox
-                </h2>
+          <div className="h-[calc(100vh-190px)] overflow-y-auto p-4">
+            <div className="space-y-3">
+              {filteredConversations.map((conversation) => {
+                const studentId = getStudentId(conversation);
+                const profile = getProfile(studentId);
+                const app = getStudentApplication(studentId);
+                const active = selectedConversation?.id === conversation.id;
 
-                <p className="mt-2 text-sm text-white/40">
-                  Connected directly to Supabase conversations table.
-                </p>
-              </div>
-
-              <button className="rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/90">
-                Realtime active
-              </button>
-            </div>
-
-            {error && (
-              <div className="mb-6 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
-                {error.message}
-              </div>
-            )}
-
-            <div className="space-y-4">
-              {conversations?.map((conversation) => (
-                <div
-                  key={conversation.id}
-                  className="rounded-3xl border border-white/10 bg-black/25 p-6 transition hover:border-fuchsia-500/30 hover:bg-white/[0.03]"
-                >
-                  <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="flex-1">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <span className="rounded-full border border-fuchsia-400/20 bg-fuchsia-500/10 px-3 py-1 text-xs text-fuchsia-200">
-                          {conversation.category || "General"}
-                        </span>
-
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs ${
-                            conversation.priority === "high"
-                              ? "bg-red-500/15 text-red-200"
-                              : "bg-white/10 text-white/60"
-                          }`}
-                        >
-                          {conversation.priority || "normal"}
-                        </span>
-
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs ${
-                            conversation.admin_read === false
-                              ? "bg-orange-500/15 text-orange-200"
-                              : "bg-emerald-500/15 text-emerald-200"
-                          }`}
-                        >
-                          {conversation.admin_read === false
-                            ? "Unread"
-                            : "Read"}
-                        </span>
+                return (
+                  <button
+                    key={conversation.id}
+                    onClick={() => openConversation(conversation)}
+                    className={`w-full rounded-3xl border p-4 text-left transition ${
+                      active
+                        ? "border-fuchsia-400/40 bg-fuchsia-500/15"
+                        : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]"
+                    }`}
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-r from-fuchsia-500 to-blue-500 font-bold">
+                        {profile?.full_name?.charAt(0)?.toUpperCase() || "S"}
                       </div>
 
-                      <h3 className="mt-4 text-xl font-semibold">
-                        {conversation.subject || "No subject"}
-                      </h3>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="truncate font-semibold">
+                            {profile?.full_name || "Unknown student"}
+                          </p>
 
-                      <p className="mt-3 max-w-3xl text-sm leading-relaxed text-white/50">
-                        {conversation.last_message ||
-                          conversation.preview ||
-                          "No preview available"}
-                      </p>
+                          <span className="text-xs text-white/30">
+                            {conversation.updated_at
+                              ? new Date(conversation.updated_at).toLocaleDateString()
+                              : ""}
+                          </span>
+                        </div>
 
-                      <div className="mt-5 flex flex-wrap items-center gap-4 text-sm text-white/40">
-                        <span>
-                          Student ID: {conversation.user_id}
-                        </span>
+                        <p className="mt-1 truncate text-sm text-white/45">
+                          {conversation.last_message || "No messages yet"}
+                        </p>
 
-                        <span>
-                          Updated:{" "}
-                          {conversation.updated_at
-                            ? new Date(
-                                conversation.updated_at
-                              ).toLocaleString()
-                            : "Unknown"}
-                        </span>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-white/50">
+                            {app?.status || "Student"}
+                          </span>
+
+                          {conversation.category && (
+                            <span className="rounded-full bg-fuchsia-500/15 px-3 py-1 text-xs text-fuchsia-200">
+                              {conversation.category}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
+                  </button>
+                );
+              })}
 
-                    <div className="flex gap-3">
-                      <Link
-                        href={`/admin/messages/${conversation.id}`}
-                        className="rounded-2xl border border-white/10 bg-white/10 px-5 py-3 text-sm font-medium text-white transition hover:bg-white/20"
-                      >
-                        Open chat
-                      </Link>
-
-                      <button className="rounded-2xl border border-fuchsia-500/20 bg-fuchsia-500/10 px-5 py-3 text-sm font-medium text-fuchsia-200 transition hover:bg-fuchsia-500/20">
-                        Reply
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              {!conversations?.length && (
-                <div className="rounded-3xl border border-white/10 bg-black/25 p-10 text-center">
-                  <h3 className="text-xl font-semibold">
-                    No conversations yet
-                  </h3>
-
-                  <p className="mt-3 text-sm text-white/45">
-                    Student conversations will appear here automatically.
-                  </p>
+              {!filteredConversations.length && (
+                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6 text-center text-sm text-white/40">
+                  No conversations found.
                 </div>
               )}
             </div>
           </div>
+        </aside>
+
+        <section className="flex h-screen min-w-0 flex-1 flex-col">
+          {selectedConversation ? (
+            <>
+              <div className="shrink-0 border-b border-white/10 bg-[#070B14] p-6">
+                <div className="flex items-start justify-between gap-6">
+                  <div className="flex items-center gap-4">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-r from-fuchsia-500 to-blue-500 text-xl font-bold">
+                      {selectedProfile?.full_name?.charAt(0)?.toUpperCase() ||
+                        "S"}
+                    </div>
+
+                    <div>
+                      <h2 className="text-2xl font-bold">
+                        {selectedProfile?.full_name || "Unknown student"}
+                      </h2>
+
+                      <p className="mt-1 text-sm text-white/45">
+                        {selectedProfile?.email || "No email"}
+                      </p>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-300">
+                          Active student
+                        </span>
+
+                        <span className="rounded-full border border-orange-400/20 bg-orange-500/10 px-3 py-1 text-xs text-orange-200">
+                          {selectedApplication?.status || "No application"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <Link
+                    href={`/admin/students/${selectedStudentId}`}
+                    className="flex items-center gap-4 rounded-3xl border border-white/10 bg-white/[0.04] px-6 py-5 transition hover:border-fuchsia-400/40 hover:bg-white/[0.07]"
+                  >
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-r from-fuchsia-500 to-blue-500">
+                      <UserRound className="h-5 w-5 text-white" />
+                    </div>
+
+                    <div>
+                      <p className="text-sm text-white/40">
+                        Open full student profile
+                      </p>
+
+                      <h3 className="mt-1 text-lg font-semibold text-white">
+                        View student details
+                      </h3>
+                    </div>
+                  </Link>
+                </div>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
+                <div className="space-y-5">
+                  {messages.map((message) => {
+                    const mine = message.sender_role === "admin";
+            
+
+                    return (
+                      <div
+                        key={message.id}
+                        className={`flex ${
+                          mine ? "justify-end" : "justify-start"
+                        }`}
+                      >
+                        <div
+                          className={`max-w-[70%] rounded-3xl px-5 py-4 ${
+                            mine
+                              ? "bg-gradient-to-r from-fuchsia-500 to-blue-500"
+                              : "border border-white/10 bg-white/[0.06]"
+                          }`}
+                        >
+                          <p className="text-sm leading-relaxed">
+                            {getMessageText(message)}
+                          </p>
+
+                          <p className="mt-2 text-right text-xs text-white/50">
+                            {message.created_at
+                              ? new Date(message.created_at).toLocaleTimeString(
+                                  [],
+                                  {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  }
+                                )
+                              : ""}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  <div ref={bottomRef} />
+                </div>
+              </div>
+
+              <div className="shrink-0 border-t border-white/10 bg-[#070B14] p-5">
+                {sendError && (
+                  <div className="mb-3 rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                    {sendError}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3 rounded-3xl border border-white/10 bg-white/[0.04] p-3">
+                  <input
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") sendMessage();
+                    }}
+                    placeholder="Type your message..."
+                    className="flex-1 bg-transparent px-4 py-3 text-sm outline-none placeholder:text-white/30"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={sendMessage}
+                    className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-r from-fuchsia-500 to-blue-500 transition hover:scale-[1.02]"
+                  >
+                    <Send className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-1 items-center justify-center text-white/40">
+              Select a conversation
+            </div>
+          )}
         </section>
       </div>
     </main>

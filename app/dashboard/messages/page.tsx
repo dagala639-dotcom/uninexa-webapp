@@ -1,236 +1,350 @@
+"use client";
+
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import LogoutButton from "../logout-button";
-import MobileNav from "../mobile-nav";
-import MessageComposer from "./message-composer";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { ArrowLeft, Send, ShieldCheck } from "lucide-react";
 
-const updates = [
-  ["KCSE Certificate", "Under UniNexa review", "Action pending"],
-  ["CSS Profile", "Parent income details missing", "Required"],
-  ["Personal Statement", "Needs revision", "Important"],
-  ["Recommendation Letter", "Not uploaded", "Optional"],
-];
+type Conversation = {
+  id: string;
+  user_id: string;
+  student_user_id?: string | null;
+  title?: string | null;
+  category?: string | null;
+  last_message?: string | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+};
 
-export default async function MessagesPage() {
-  const supabase = await createClient();
+type Message = {
+  id: string;
+  conversation_id: string;
+  sender?: string | null;
+  sender_user_id?: string | null;
+  sender_role?: string | null;
+  body?: string | null;
+  message?: string | null;
+  created_at: string;
+};
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+export default function StudentMessagesPage() {
+  const supabase = useMemo(() => createClient(), []);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
 
-  if (!user) redirect("/login");
+  const [loading, setLoading] = useState(true);
+  const [studentId, setStudentId] = useState("");
+  const [conversation, setConversation] = useState<Conversation | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [newMessage, setNewMessage] = useState("");
+  const [sendError, setSendError] = useState("");
 
-  const { data: conversations } = await supabase
-    .from("conversations")
-    .select("*")
-    .eq("user_id", user.id)
-    .order("updated_at", { ascending: false });
+  useEffect(() => {
+    loadData();
+  }, []);
 
-  const selectedConversation = conversations?.[0];
+  useEffect(() => {
+    if (!conversation) return;
 
-  const { data: messages } = selectedConversation
-    ? await supabase
-        .from("messages")
-        .select("*")
-        .eq("conversation_id", selectedConversation.id)
-        .order("created_at", { ascending: true })
-    : { data: [] };
+    loadMessages(conversation.id);
 
-  const totalUnread =
-    conversations?.reduce(
-      (sum, conversation) => sum + (conversation.unread_count || 0),
-      0
-    ) || 0;
+    const channel = supabase
+      .channel(`student-advisor-${conversation.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `conversation_id=eq.${conversation.id}`,
+        },
+        (payload) => {
+          const incoming = payload.new as Message;
+
+          setMessages((prev) => {
+            if (prev.some((msg) => msg.id === incoming.id)) return prev;
+            return [...prev, incoming];
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [conversation, supabase]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  async function loadData() {
+    setLoading(true);
+    setSendError("");
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    setStudentId(user.id);
+
+    const { data: existingConversation } = await supabase
+      .from("conversations")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("title", "UniNexa Advisor")
+      .maybeSingle();
+
+    if (existingConversation) {
+      setConversation(existingConversation);
+      setLoading(false);
+      return;
+    }
+
+    const { data: newConversation, error } = await supabase
+      .from("conversations")
+      .insert({
+        user_id: user.id,
+        student_user_id: user.id,
+        title: "UniNexa Advisor",
+        category: "Advisor",
+        last_message: "Start a conversation with your UniNexa advisor.",
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (error) {
+      setSendError(error.message);
+      setLoading(false);
+      return;
+    }
+
+    setConversation(newConversation);
+    setLoading(false);
+  }
+
+  async function loadMessages(conversationId: string) {
+    const { data } = await supabase
+      .from("messages")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: true });
+
+    setMessages(data || []);
+  }
+
+  function getMessageText(message: Message) {
+    return message.body || message.message || "";
+  }
+
+  async function sendMessage() {
+    if (!newMessage.trim() || !conversation || !studentId) return;
+
+    const text = newMessage.trim();
+
+    setNewMessage("");
+    setSendError("");
+
+    const { data, error } = await supabase
+      .from("messages")
+      .insert({
+        conversation_id: conversation.id,
+        sender: studentId,
+        sender_user_id: studentId,
+        sender_role: "student",
+        body: text,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      setSendError(error.message);
+      setNewMessage(text);
+      return;
+    }
+
+    if (data) {
+      setMessages((prev) => {
+        if (prev.some((msg) => msg.id === data.id)) return prev;
+        return [...prev, data as Message];
+      });
+    }
+
+    await supabase
+      .from("conversations")
+      .update({
+        last_message: text,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", conversation.id);
+
+    setConversation({
+      ...conversation,
+      last_message: text,
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  if (loading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#050816] text-white">
+        Loading messages...
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-[#050816] text-white">
       <div className="flex min-h-screen">
-        <aside className="hidden w-72 border-r border-white/10 bg-white/[0.03] p-6 backdrop-blur-xl lg:block">
-          <div className="mb-10">
-            <h1 className="bg-gradient-to-r from-fuchsia-400 via-purple-300 to-blue-400 bg-clip-text text-xl font-bold uppercase tracking-[0.35em] text-transparent">
-              UniNexa
-            </h1>
-            <p className="mt-2 text-sm text-white/40">Student Portal</p>
+        <aside className="w-[360px] shrink-0 border-r border-white/10 bg-[#080D1A]">
+          <div className="border-b border-white/10 p-6">
+            <Link
+              href="/dashboard"
+              className="mb-5 inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/70 hover:bg-white/10"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to dashboard
+            </Link>
+
+            <h1 className="text-3xl font-bold">Messages</h1>
+            <p className="mt-2 text-sm text-white/40">
+              UniNexa support & counseling
+            </p>
           </div>
 
-          <nav className="space-y-2">
-            {[
-              ["Dashboard", "/dashboard"],
-              ["Profile", "/dashboard/profile"],
-              ["Applications", "/dashboard/applications"],
-              ["Universities", "/dashboard/universities"],
-              ["Documents", "/dashboard/documents"],
-              ["Scholarships", "/dashboard/scholarships"],
-              ["AI Matcher", "/dashboard/ai-matcher"],
-              ["Messages", "/dashboard/messages"],
-              ["Settings", "/dashboard/settings"],
-            ].map(([name, href]) => (
-              <Link
-                key={href}
-                href={href}
-                className={`block rounded-2xl px-4 py-3 text-sm transition ${
-                  href === "/dashboard/messages"
-                    ? "bg-white/10 text-white"
-                    : "text-white/50 hover:bg-white/5 hover:text-white"
-                }`}
-              >
-                {name}
-              </Link>
-            ))}
-          </nav>
-        </aside>
+          <div className="p-4">
+            <div className="rounded-3xl border border-fuchsia-400/40 bg-fuchsia-500/15 p-4">
+              <div className="flex items-start gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-r from-fuchsia-500 to-blue-500">
+                  <ShieldCheck className="h-5 w-5" />
+                </div>
 
-        <section className="relative flex-1 overflow-hidden p-6 pb-28 lg:p-10">
-          <div className="absolute -right-40 -top-40 h-96 w-96 rounded-full bg-fuchsia-600/20 blur-3xl" />
-          <div className="absolute left-1/3 top-72 h-96 w-96 rounded-full bg-blue-500/10 blur-3xl" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold">UniNexa Advisor</p>
+                  <p className="mt-1 truncate text-sm text-white/45">
+                    {conversation?.last_message ||
+                      "Start a conversation with your UniNexa advisor."}
+                  </p>
 
-          <div className="relative mb-8 flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-fuchsia-300">Messages</p>
-              <h2 className="mt-2 text-4xl font-bold tracking-tight lg:text-6xl">
-                Your admissions inbox.
-              </h2>
-              <p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/50">
-                Advisor guidance, document verification updates, scholarship
-                reminders, and university messages.
-              </p>
-            </div>
-
-            <LogoutButton />
-          </div>
-
-          <div className="relative mb-8 grid gap-4 md:grid-cols-4">
-            {[
-              [String(conversations?.length || 0), "Conversations"],
-              [String(totalUnread), "Unread updates"],
-              ["1", "Action required"],
-              ["KCSE", "Verification active"],
-            ].map(([value, label]) => (
-              <div
-                key={label}
-                className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl"
-              >
-                <p className="text-3xl font-bold">{value}</p>
-                <p className="mt-2 text-sm text-white/40">{label}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="relative grid gap-8 xl:grid-cols-[0.8fr_1.35fr_0.75fr]">
-            <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl">
-              <div className="mb-5">
-                <h3 className="text-xl font-semibold">Inbox</h3>
-                <p className="mt-1 text-sm text-white/40">
-                  Your active conversations.
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                {!conversations || conversations.length === 0 ? (
-                  <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
-                    <p className="font-semibold">No conversations yet.</p>
-                    <p className="mt-2 text-sm text-white/40">
-                      Send your first message to UniNexa support.
-                    </p>
+                  <div className="mt-3">
+                    <span className="rounded-full bg-fuchsia-500/20 px-3 py-1 text-xs text-fuchsia-100">
+                      Advisor
+                    </span>
                   </div>
-                ) : (
-                  conversations.map((item, index) => (
-                    <div
-                      key={item.id}
-                      className={`rounded-3xl border p-4 text-left ${
-                        index === 0
-                          ? "border-fuchsia-400/30 bg-fuchsia-500/10"
-                          : "border-white/10 bg-black/20"
-                      }`}
-                    >
-                      <p className="font-semibold">{item.title}</p>
-                      <p className="mt-1 text-xs uppercase tracking-[0.2em] text-fuchsia-300">
-                        {item.category || "Message"}
-                      </p>
-                      <p className="mt-3 line-clamp-2 text-sm text-white/45">
-                        {item.last_message || "No messages yet."}
-                      </p>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-white/[0.08] to-white/[0.03] p-6 shadow-[0_0_80px_rgba(168,85,247,0.12)] backdrop-blur-2xl">
-              <div className="mb-6 border-b border-white/10 pb-5">
-                <p className="text-xs uppercase tracking-[0.25em] text-fuchsia-300">
-                  {selectedConversation?.category || "Advisor"}
-                </p>
-                <h3 className="mt-2 text-2xl font-semibold">
-                  {selectedConversation?.title || "UniNexa Advisor"}
-                </h3>
-              </div>
-
-              <div className="space-y-5">
-                {!messages || messages.length === 0 ? (
-                  <div className="rounded-[1.5rem] border border-white/10 bg-black/25 px-5 py-4 text-white/60">
-                    No messages yet.
-                  </div>
-                ) : (
-                  messages.map((message) => {
-                    const isUser = message.sender === "You";
-
-                    return (
-                      <div
-                        key={message.id}
-                        className={`flex ${
-                          isUser ? "justify-end" : "justify-start"
-                        }`}
-                      >
-                        <div
-                          className={`max-w-[80%] rounded-[1.5rem] px-5 py-4 ${
-                            isUser
-                              ? "bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500 text-white"
-                              : "border border-white/10 bg-black/25 text-white/70"
-                          }`}
-                        >
-                          <p className="mb-1 text-xs text-white/40">
-                            {message.sender}
-                          </p>
-                          <p className="text-sm leading-relaxed">
-                            {message.body}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-
-              <MessageComposer conversationId={selectedConversation?.id || null} />
-            </div>
-
-            <div className="space-y-6">
-              <div className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-fuchsia-500/15 to-blue-500/10 p-6 backdrop-blur-xl">
-                <h3 className="text-xl font-semibold">Action center</h3>
-
-                <div className="mt-5 space-y-3">
-                  {updates.map(([title, status, label]) => (
-                    <div
-                      key={title}
-                      className="rounded-2xl border border-white/10 bg-black/25 p-4"
-                    >
-                      <p className="font-medium">{title}</p>
-                      <p className="mt-1 text-sm text-white/40">{status}</p>
-                      <span className="mt-3 inline-block rounded-full border border-orange-400/20 bg-orange-500/10 px-3 py-1 text-xs text-orange-200">
-                        {label}
-                      </span>
-                    </div>
-                  ))}
                 </div>
               </div>
             </div>
           </div>
+        </aside>
+
+        <section className="flex h-screen min-w-0 flex-1 flex-col">
+          <div className="shrink-0 border-b border-white/10 bg-[#070B14] p-6">
+            <div className="flex items-center gap-4">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-r from-fuchsia-500 to-blue-500">
+                <ShieldCheck className="h-6 w-6" />
+              </div>
+
+              <div>
+                <h2 className="text-2xl font-bold">UniNexa Advisor</h2>
+                <p className="mt-1 text-sm text-white/45">
+                  Admissions counselors & support team
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
+            {sendError && (
+              <div className="mb-5 rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                {sendError}
+              </div>
+            )}
+
+            <div className="space-y-5">
+              {messages.length === 0 && (
+                <div className="mx-auto mt-20 max-w-xl rounded-[2rem] border border-white/10 bg-white/[0.04] p-8 text-center">
+                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-r from-fuchsia-500 to-blue-500">
+                    <ShieldCheck className="h-7 w-7" />
+                  </div>
+
+                  <h3 className="mt-5 text-2xl font-bold">
+                    Welcome to UniNexa Advisor
+                  </h3>
+
+                  <p className="mt-3 text-sm leading-7 text-white/50">
+                    Ask about applications, documents, scholarships, KCSE
+                    verification, admissions, or study abroad support.
+                  </p>
+                </div>
+              )}
+
+              {messages.map((message) => {
+                const mine = message.sender_role === "student";
+
+                return (
+                  <div
+                    key={message.id}
+                    className={`flex ${mine ? "justify-end" : "justify-start"}`}
+                  >
+                    <div
+                      className={`max-w-[70%] rounded-3xl px-5 py-4 ${
+                        mine
+                          ? "bg-gradient-to-r from-fuchsia-500 to-blue-500"
+                          : "border border-white/10 bg-white/[0.06]"
+                      }`}
+                    >
+                      <p className="text-sm leading-relaxed">
+                        {getMessageText(message)}
+                      </p>
+
+                      <p className="mt-2 text-right text-xs text-white/50">
+                        {message.created_at
+                          ? new Date(message.created_at).toLocaleTimeString(
+                              [],
+                              {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              }
+                            )
+                          : ""}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+
+              <div ref={bottomRef} />
+            </div>
+          </div>
+
+          <div className="shrink-0 border-t border-white/10 bg-[#070B14] p-5">
+            <div className="flex items-center gap-3 rounded-3xl border border-white/10 bg-white/[0.04] p-3">
+              <input
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") sendMessage();
+                }}
+                placeholder="Type your message..."
+                className="flex-1 bg-transparent px-4 py-3 text-sm outline-none placeholder:text-white/30"
+              />
+
+              <button
+                type="button"
+                onClick={sendMessage}
+                className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-r from-fuchsia-500 to-blue-500 transition hover:scale-[1.02]"
+              >
+                <Send className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
         </section>
       </div>
-
-      <MobileNav />
     </main>
   );
 }

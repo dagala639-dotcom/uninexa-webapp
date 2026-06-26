@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -33,7 +33,7 @@ const statusOptions = [
 ];
 
 export default function AdminDocumentsPage() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
@@ -44,7 +44,7 @@ export default function AdminDocumentsPage() {
   const [savingId, setSavingId] = useState("");
   const [message, setMessage] = useState("");
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setMessage("");
 
     const {
@@ -79,22 +79,17 @@ export default function AdminDocumentsPage() {
       .from("profiles")
       .select("user_id, full_name, email, phone");
 
-    if (docsError) {
-      setMessage(docsError.message);
-    }
+    if (docsError) setMessage(docsError.message);
+    if (profileError) setMessage(profileError.message);
 
-    if (profileError) {
-      setMessage(profileError.message);
-    }
-
-    setDocuments(docs || []);
-    setProfiles(profileData || []);
+    setDocuments((docs || []) as DocumentRow[]);
+    setProfiles((profileData || []) as ProfileRow[]);
     setLoading(false);
-  }
+  }, [router, supabase]);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   function getProfile(userId: string) {
     return profiles.find((profile) => profile.user_id === userId);

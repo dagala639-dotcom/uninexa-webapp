@@ -8,7 +8,8 @@ import { saveActivitiesDraft } from "./actions";
 
 type Question = {
   id: string;
-  label: string;
+  label?: string;
+  question?: string;
   type: string;
   required?: boolean;
   options?: string[];
@@ -21,12 +22,14 @@ export default function ActivitiesForm({
   application,
   questions,
   initialAnswers,
+  locked,
 }: {
   applicationId: string;
   profile: Record<string, string>;
   application: Record<string, string>;
   questions: Question[];
   initialAnswers: Record<string, string>;
+  locked?: boolean;
 }) {
   const baseQuestions: Question[] = [
     {
@@ -99,8 +102,7 @@ export default function ActivitiesForm({
   const allQuestions = [
     ...baseQuestions,
     ...questions.filter(
-      (question) =>
-        !baseQuestions.some((base) => base.id === question.id)
+      (question) => !baseQuestions.some((base) => base.id === question.id)
     ),
   ];
 
@@ -118,15 +120,17 @@ export default function ActivitiesForm({
     return values;
   });
 
-  const [saveStatus, setSaveStatus] = useState<"Saved" | "Saving..." | "Failed to save">(
-    "Saved"
-  );
+  const [saveStatus, setSaveStatus] = useState<
+    "Saved" | "Saving..." | "Failed to save" | "Submitted — locked"
+  >(locked ? "Submitted — locked" : "Saved");
 
   function handleChange(
     e: React.ChangeEvent<
       HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
     >
   ) {
+    if (locked) return;
+
     const { name, value } = e.target;
 
     setFormData((prev) => ({
@@ -140,6 +144,8 @@ export default function ActivitiesForm({
   const autosave = useMemo(
     () =>
       debounce(async (data: Record<string, string>) => {
+        if (locked) return;
+
         try {
           await saveActivitiesDraft(applicationId, data);
           setSaveStatus("Saved");
@@ -147,16 +153,18 @@ export default function ActivitiesForm({
           setSaveStatus("Failed to save");
         }
       }, 1000),
-    [applicationId]
+    [applicationId, locked]
   );
 
   useEffect(() => {
+    if (locked) return;
+
     autosave(formData);
 
     return () => {
       autosave.cancel();
     };
-  }, [formData, autosave]);
+  }, [formData, autosave, locked]);
 
   return (
     <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl sm:p-6">
@@ -164,7 +172,9 @@ export default function ActivitiesForm({
         <div>
           <h3 className="text-2xl font-semibold">Activity 1</h3>
           <p className="mt-2 text-sm text-white/45">
-            Start with your strongest or most meaningful activity.
+            {locked
+              ? "This application has been submitted and is now read-only."
+              : "Start with your strongest or most meaningful activity."}
           </p>
         </div>
 
@@ -175,7 +185,9 @@ export default function ActivitiesForm({
                 ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-300"
                 : saveStatus === "Saving..."
                   ? "border-amber-400/20 bg-amber-500/10 text-amber-300"
-                  : "border-red-400/20 bg-red-500/10 text-red-300"
+                  : saveStatus === "Submitted — locked"
+                    ? "border-orange-400/20 bg-orange-500/10 text-orange-300"
+                    : "border-red-400/20 bg-red-500/10 text-red-300"
             }`}
           >
             {saveStatus}
@@ -183,7 +195,8 @@ export default function ActivitiesForm({
 
           <button
             type="button"
-            className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white/70"
+            disabled={locked}
+            className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-semibold text-white/70 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <PlusCircle className="h-4 w-4" />
             Add activity
@@ -196,13 +209,14 @@ export default function ActivitiesForm({
           <Field
             key={question.id}
             id={question.id}
-            label={question.label}
+            label={question.label || question.question || ""}
             type={question.type}
             required={question.required}
             options={question.options}
             value={formData[question.id] || ""}
             placeholder={question.placeholder}
             onChange={handleChange}
+            disabled={locked}
           />
         ))}
       </div>
@@ -217,9 +231,14 @@ export default function ActivitiesForm({
 
         <button
           type="button"
-          className="rounded-2xl border border-white/10 bg-white/5 px-6 py-4 text-sm font-semibold text-white/70"
+          disabled
+          className={`rounded-2xl border px-6 py-4 text-sm font-semibold ${
+            locked
+              ? "border-orange-400/20 bg-orange-500/10 text-orange-300"
+              : "border-white/10 bg-white/5 text-white/70"
+          }`}
         >
-          Saved automatically
+          {locked ? "Submitted — locked" : "Saved automatically"}
         </button>
 
         <Link
@@ -242,6 +261,7 @@ function Field({
   value,
   placeholder,
   onChange,
+  disabled,
 }: {
   id: string;
   label: string;
@@ -250,6 +270,7 @@ function Field({
   options?: string[];
   value: string;
   placeholder?: string;
+  disabled?: boolean;
   onChange: (
     e: React.ChangeEvent<
       HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
@@ -268,18 +289,20 @@ function Field({
           name={id}
           rows={6}
           required={required}
+          disabled={disabled}
           value={value}
           onChange={onChange}
           placeholder={placeholder || label}
-          className="w-full rounded-2xl border border-white/10 bg-white/10 px-5 py-4 text-white outline-none placeholder:text-white/30 focus:border-fuchsia-400/50 focus:bg-white/[0.14]"
+          className="w-full rounded-2xl border border-white/10 bg-white/10 px-5 py-4 text-white outline-none placeholder:text-white/30 focus:border-fuchsia-400/50 focus:bg-white/[0.14] disabled:cursor-not-allowed disabled:opacity-60"
         />
       ) : type === "select" ? (
         <select
           name={id}
           required={required}
+          disabled={disabled}
           value={value}
           onChange={onChange}
-          className="w-full rounded-2xl border border-white/10 bg-white/10 px-5 py-4 text-white outline-none focus:border-fuchsia-400/50 focus:bg-white/[0.14]"
+          className="w-full rounded-2xl border border-white/10 bg-white/10 px-5 py-4 text-white outline-none focus:border-fuchsia-400/50 focus:bg-white/[0.14] disabled:cursor-not-allowed disabled:opacity-60"
         >
           <option value="" className="bg-[#070B14]">
             Select option
@@ -305,6 +328,7 @@ function Field({
                 checked={value === option}
                 onChange={onChange}
                 required={required}
+                disabled={disabled}
               />
               {option}
             </label>
@@ -315,10 +339,11 @@ function Field({
           name={id}
           type="text"
           required={required}
+          disabled={disabled}
           value={value}
           onChange={onChange}
           placeholder={placeholder || label}
-          className="w-full rounded-2xl border border-white/10 bg-white/10 px-5 py-4 text-white outline-none placeholder:text-white/30 focus:border-fuchsia-400/50 focus:bg-white/[0.14]"
+          className="w-full rounded-2xl border border-white/10 bg-white/10 px-5 py-4 text-white outline-none placeholder:text-white/30 focus:border-fuchsia-400/50 focus:bg-white/[0.14] disabled:cursor-not-allowed disabled:opacity-60"
         />
       )}
     </div>

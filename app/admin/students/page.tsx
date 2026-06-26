@@ -1,405 +1,387 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import {
+  ImageIcon,
+  Paperclip,
+  Search,
+  Send,
+} from "lucide-react";
+
+type Conversation = {
+  id: string;
+  student_id: string;
+  assigned_staff_id: string | null;
+  last_message: string | null;
+  updated_at: string;
+};
+
+type Message = {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  body: string;
+  created_at: string;
+};
 
 type Profile = {
-  id: string;
   user_id: string;
   full_name: string | null;
   email: string | null;
-  phone: string | null;
-  country: string | null;
-  county: string | null;
-  town: string | null;
-  high_school_name: string | null;
-  kcse_mean_grade: string | null;
-  student_type: string | null;
-  updated_at: string | null;
 };
 
-type Application = {
-  id: string;
-  user_id: string;
-  university_name: string | null;
-  country: string | null;
-  status: string | null;
-  progress: number | null;
-};
+export default function AdminMessagesPage() {
+  const supabase = useMemo(() => createClient(), []);
 
-type DocumentRow = {
-  id: string;
-  user_id: string;
-  document_type: string | null;
-  status: string | null;
-};
-
-export default function AdminStudentsPage() {
-  const supabase = createClient();
-  const router = useRouter();
+  const bottomRef = useRef<HTMLDivElement | null>(null);
 
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState("");
-  const [search, setSearch] = useState("");
 
-  const [students, setStudents] = useState<Profile[]>([]);
-  const [applications, setApplications] = useState<Application[]>([]);
-  const [documents, setDocuments] = useState<DocumentRow[]>([]);
+  const [adminId, setAdminId] = useState("");
 
-  async function loadData() {
-    setMessage("");
+  const [conversations, setConversations] = useState<
+    Conversation[]
+  >([]);
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+  const [profiles, setProfiles] = useState<Profile[]>([]);
 
-    const user = session?.user;
+  const [messages, setMessages] = useState<Message[]>([]);
 
-    if (!user) {
-      router.push("/login");
-      return;
-    }
+  const [selectedConversation, setSelectedConversation] =
+    useState<Conversation | null>(null);
 
-    const { data: roleData } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .eq("role", "admin")
-      .maybeSingle();
-
-    if (roleData?.role !== "admin") {
-      router.push("/dashboard");
-      return;
-    }
-
-    const { data: profiles, error: profilesError } = await supabase
-      .from("profiles")
-      .select("*")
-      .order("updated_at", { ascending: false });
-
-    const { data: apps, error: appsError } = await supabase
-      .from("applications")
-      .select("*");
-
-    const { data: docs, error: docsError } = await supabase
-      .from("documents")
-      .select("*");
-
-    if (profilesError) setMessage(profilesError.message);
-    if (appsError) setMessage(appsError.message);
-    if (docsError) setMessage(docsError.message);
-
-    setStudents(profiles || []);
-    setApplications(apps || []);
-    setDocuments(docs || []);
-    setLoading(false);
-  }
+  const [messageInput, setMessageInput] = useState("");
 
   useEffect(() => {
     loadData();
   }, []);
 
-  const filteredStudents = useMemo(() => {
-    const term = search.toLowerCase().trim();
+  useEffect(() => {
+    if (!selectedConversation) return;
 
-    if (!term) return students;
+    loadMessages(selectedConversation.id);
 
-    return students.filter((student) => {
-      return (
-        student.full_name?.toLowerCase().includes(term) ||
-        student.email?.toLowerCase().includes(term) ||
-        student.phone?.toLowerCase().includes(term) ||
-        student.county?.toLowerCase().includes(term) ||
-        student.town?.toLowerCase().includes(term) ||
-        student.high_school_name?.toLowerCase().includes(term) ||
-        student.kcse_mean_grade?.toLowerCase().includes(term) ||
-        student.user_id?.toLowerCase().includes(term)
-      );
+    const channel = supabase
+      .channel(`messages-${selectedConversation.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `conversation_id=eq.${selectedConversation.id}`,
+        },
+        (payload) => {
+          setMessages((prev) => [
+            ...prev,
+            payload.new as Message,
+          ]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [selectedConversation, supabase]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({
+      behavior: "smooth",
     });
-  }, [students, search]);
+  }, [messages]);
 
-  function countApplications(userId: string) {
-    return applications.filter((app) => app.user_id === userId).length;
+  async function loadData() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return;
+
+    setAdminId(user.id);
+
+    const { data: conversationsData } = await supabase
+      .from("conversations")
+      .select("*")
+      .order("updated_at", {
+        ascending: false,
+      });
+
+    const studentIds =
+      conversationsData?.map((c) => c.student_id) || [];
+
+    let profileData: Profile[] = [];
+
+    if (studentIds.length > 0) {
+      const { data } = await supabase
+        .from("profiles")
+        .select("user_id, full_name, email")
+        .in("user_id", studentIds);
+
+      profileData = data || [];
+    }
+
+    setConversations(conversationsData || []);
+    setProfiles(profileData);
+
+    if (conversationsData?.length) {
+      setSelectedConversation(conversationsData[0]);
+    }
+
+    setLoading(false);
   }
 
-  function countDocuments(userId: string) {
-    return documents.filter((doc) => doc.user_id === userId).length;
+  async function loadMessages(conversationId: string) {
+    const { data } = await supabase
+      .from("messages")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .order("created_at", {
+        ascending: true,
+      });
+
+    setMessages(data || []);
   }
 
-  function studentReadiness(student: Profile) {
-    let score = 0;
+  async function sendMessage() {
+    if (!messageInput.trim()) return;
 
-    if (student.full_name) score += 15;
-    if (student.email) score += 15;
-    if (student.phone) score += 10;
-    if (student.county) score += 10;
-    if (student.high_school_name) score += 15;
-    if (student.kcse_mean_grade) score += 15;
-    if (countDocuments(student.user_id) > 0) score += 10;
-    if (countApplications(student.user_id) > 0) score += 10;
+    if (!selectedConversation) return;
 
-    return Math.min(score, 100);
+    const text = messageInput.trim();
+
+    setMessageInput("");
+
+    await supabase.from("messages").insert({
+      conversation_id: selectedConversation.id,
+      sender_id: adminId,
+      body: text,
+    });
+
+    await supabase
+      .from("conversations")
+      .update({
+        last_message: text,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", selectedConversation.id);
+
+    await loadData();
+  }
+
+  function getProfile(userId: string) {
+    return profiles.find(
+      (profile) => profile.user_id === userId
+    );
   }
 
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#050816] text-white">
-        <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-8">
-          Loading students...
-        </div>
+      <main className="flex h-screen w-screen items-center justify-center bg-[#050816] text-white">
+        Loading messages...
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-[#050816] text-white">
-      <div className="flex min-h-screen">
-        <aside className="hidden w-72 border-r border-white/10 bg-white/[0.03] p-6 backdrop-blur-xl lg:block">
-          <div className="mb-10">
-            <h1 className="bg-gradient-to-r from-fuchsia-400 via-purple-300 to-blue-400 bg-clip-text text-xl font-bold uppercase tracking-[0.35em] text-transparent">
-              UniNexa
+    <main className="h-screen w-screen overflow-hidden bg-[#050816] text-white">
+      <div className="flex h-screen w-screen">
+        {/* LEFT SIDEBAR */}
+
+        <aside className="w-[360px] shrink-0 border-r border-white/10 bg-black/20">
+          <div className="border-b border-white/10 p-6">
+            <h1 className="text-4xl font-bold">
+              Messages
             </h1>
-            <p className="mt-2 text-sm text-white/40">Admin Console</p>
-          </div>
 
-          <nav className="space-y-2">
-            {[
-              ["Overview", "/admin"],
-              ["Students", "/admin/students"],
-              ["Documents", "/admin/documents"],
-              ["KCSE Verification", "/admin/kcse-verification"],
-              ["Applications", "/admin/applications"],
-              ["Messages", "/admin/messages"],
-              ["Scholarships", "/admin/scholarships"],
-              ["Universities", "/admin/universities"],
-              ["Settings", "/admin/settings"],
-            ].map(([name, href]) => (
-              <Link
-                key={href}
-                href={href}
-                className={`block rounded-2xl px-4 py-3 text-sm transition ${
-                  href === "/admin/students"
-                    ? "bg-white/10 text-white"
-                    : "text-white/50 hover:bg-white/5 hover:text-white"
-                }`}
-              >
-                {name}
-              </Link>
-            ))}
-          </nav>
+            <div className="relative mt-5">
+              <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/30" />
 
-          <Link
-            href="/dashboard"
-            className="mt-8 block rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white/60 transition hover:bg-white/[0.06]"
-          >
-            Back to student portal
-          </Link>
-        </aside>
-
-        <section className="relative flex-1 overflow-hidden p-4 pb-20 sm:p-6 lg:p-10">
-          <div className="absolute -right-40 -top-40 h-96 w-96 rounded-full bg-fuchsia-600/20 blur-3xl" />
-          <div className="absolute left-1/3 top-72 h-96 w-96 rounded-full bg-blue-500/10 blur-3xl" />
-
-          <div className="relative mb-8">
-            <p className="text-sm font-medium text-fuchsia-300">Students</p>
-
-            <h2 className="mt-2 text-4xl font-bold tracking-tight lg:text-6xl">
-              Student intelligence center.
-            </h2>
-
-            <p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/50">
-              View student profiles, readiness, applications, documents, KCSE
-              data, and progress.
-            </p>
-          </div>
-
-          {message && (
-            <div className="relative mb-6 rounded-2xl border border-red-400/20 bg-red-500/10 px-5 py-4 text-sm text-red-200">
-              {message}
+              <input
+                placeholder="Search conversations..."
+                className="w-full rounded-2xl border border-white/10 bg-white/5 py-4 pl-11 pr-4 text-sm outline-none placeholder:text-white/30"
+              />
             </div>
-          )}
-
-          <div className="relative mb-8 grid gap-4 md:grid-cols-4">
-            {[
-              [String(students.length), "Total students"],
-              [String(applications.length), "Applications"],
-              [String(documents.length), "Documents"],
-              [
-                String(
-                  students.filter((student) => studentReadiness(student) >= 70)
-                    .length
-                ),
-                "High readiness",
-              ],
-            ].map(([value, label]) => (
-              <div
-                key={label}
-                className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl"
-              >
-                <p className="text-3xl font-bold">{value}</p>
-                <p className="mt-2 text-sm text-white/40">{label}</p>
-              </div>
-            ))}
           </div>
 
-          <div className="relative mb-8 grid gap-4 rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl lg:grid-cols-[1fr_0.25fr]">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name, email, phone, county, school, KCSE grade, or student ID..."
-              className="w-full rounded-2xl border border-white/10 bg-black/25 px-5 py-4 text-sm text-white outline-none placeholder:text-white/30 focus:border-fuchsia-400/50"
-            />
+          <div className="h-[calc(100vh-140px)] overflow-y-auto p-4">
+            <div className="space-y-3">
+              {conversations.map((conversation) => {
+                const student = getProfile(
+                  conversation.student_id
+                );
 
-            <button
-              type="button"
-              onClick={loadData}
-              className="rounded-2xl bg-white px-5 py-4 text-sm font-semibold text-black transition hover:bg-white/90"
-            >
-              Refresh
-            </button>
-          </div>
-
-          <div className="relative rounded-[2.5rem] border border-white/10 bg-gradient-to-br from-white/[0.1] via-white/[0.04] to-white/[0.02] p-5 shadow-[0_0_90px_rgba(168,85,247,0.16)] backdrop-blur-2xl sm:p-6">
-            <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <h3 className="text-2xl font-semibold">Student records</h3>
-                <p className="mt-2 text-sm text-white/40">
-                  Connected directly to Supabase profiles, applications, and
-                  documents.
-                </p>
-              </div>
-            </div>
-
-            <div className="grid gap-5">
-              {filteredStudents.map((student) => {
-                const readiness = studentReadiness(student);
-                const appCount = countApplications(student.user_id);
-                const docCount = countDocuments(student.user_id);
+                const active =
+                  selectedConversation?.id ===
+                  conversation.id;
 
                 return (
-                  <div
-                    key={student.user_id}
-                    className="rounded-[2rem] border border-white/10 bg-black/25 p-5"
+                  <button
+                    key={conversation.id}
+                    onClick={() =>
+                      setSelectedConversation(
+                        conversation
+                      )
+                    }
+                    className={`w-full rounded-3xl border p-4 text-left transition ${
+                      active
+                        ? "border-fuchsia-400/30 bg-fuchsia-500/10"
+                        : "border-white/10 bg-white/[0.03] hover:bg-white/[0.06]"
+                    }`}
                   >
-                    <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.25em] text-fuchsia-300">
-                          Student
-                        </p>
-
-                        <h4 className="mt-2 text-2xl font-semibold">
-                          {student.full_name || "Unnamed student"}
-                        </h4>
-
-                        <p className="mt-1 text-sm text-white/45">
-                          {student.email || "No email"} ·{" "}
-                          {student.phone || "No phone"}
-                        </p>
-
-                        <p className="mt-1 text-sm text-white/35">
-                          {student.county || "County not set"}
-                          {student.town ? `, ${student.town}` : ""}
-                        </p>
+                    <div className="flex items-start gap-4">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-r from-fuchsia-500 to-purple-500 font-bold">
+                        {student?.full_name
+                          ?.charAt(0)
+                          ?.toUpperCase() || "S"}
                       </div>
 
-                      <div className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-300">
-                        {readiness}% ready
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-3">
+                          <h3 className="truncate font-semibold">
+                            {student?.full_name ||
+                              "Unknown student"}
+                          </h3>
+
+                          <span className="text-xs text-white/30">
+                            {conversation.updated_at
+                              ? new Date(
+                                  conversation.updated_at
+                                ).toLocaleDateString()
+                              : ""}
+                          </span>
+                        </div>
+
+                        <p className="mt-1 truncate text-sm text-white/45">
+                          {conversation.last_message ||
+                            "No messages yet"}
+                        </p>
                       </div>
                     </div>
-
-                    <div className="mt-5 h-3 overflow-hidden rounded-full bg-white/10">
-                      <div
-                        className="h-full rounded-full bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500"
-                        style={{ width: `${readiness}%` }}
-                      />
-                    </div>
-
-                    <div className="mt-5 grid gap-3 md:grid-cols-4">
-                      <Info
-                        label="Student type"
-                        value={student.student_type || "Not set"}
-                      />
-
-                      <Info
-                        label="High school"
-                        value={student.high_school_name || "Not set"}
-                      />
-
-                      <Info
-                        label="KCSE grade"
-                        value={student.kcse_mean_grade || "Not set"}
-                      />
-
-                      <Info label="Applications" value={String(appCount)} />
-
-                      <Info label="Documents" value={String(docCount)} />
-
-                      <Info
-                        label="Country"
-                        value={student.country || "Kenya"}
-                      />
-
-                      <Info
-                        label="Updated"
-                        value={
-                          student.updated_at
-                            ? new Date(student.updated_at).toLocaleDateString()
-                            : "Unknown"
-                        }
-                      />
-
-                      <Info
-                        label="User ID"
-                        value={student.user_id.slice(0, 8) + "..."}
-                      />
-                    </div>
-
-                    <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-                      <Link
-                        href={`/admin/students/${student.user_id}`}
-                        className="rounded-2xl bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500 px-5 py-3 text-center text-sm font-semibold text-white"
-                      >
-                        View full profile
-                      </Link>
-
-                      <Link
-                        href="/admin/applications"
-                        className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-center text-sm font-semibold text-white/65 hover:bg-white/10"
-                      >
-                        View applications
-                      </Link>
-
-                      <Link
-                        href="/admin/documents"
-                        className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-center text-sm font-semibold text-white/65 hover:bg-white/10"
-                      >
-                        View documents
-                      </Link>
-                    </div>
-                  </div>
+                  </button>
                 );
               })}
-
-              {!filteredStudents.length && (
-                <div className="rounded-3xl border border-white/10 bg-black/25 p-8 text-center text-sm text-white/45">
-                  No students found.
-                </div>
-              )}
             </div>
           </div>
+        </aside>
+
+        {/* RIGHT CHAT PANEL */}
+
+        <section className="flex h-screen min-w-0 flex-1 flex-col">
+          {selectedConversation ? (
+            <>
+              {/* HEADER */}
+
+              <div className="flex h-[86px] shrink-0 items-center gap-4 border-b border-white/10 px-8">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-r from-fuchsia-500 to-purple-500 text-lg font-bold">
+                  {getProfile(
+                    selectedConversation.student_id
+                  )
+                    ?.full_name?.charAt(0)
+                    ?.toUpperCase() || "S"}
+                </div>
+
+                <div>
+                  <h2 className="text-2xl font-semibold">
+                    {getProfile(
+                      selectedConversation.student_id
+                    )?.full_name || "Unknown student"}
+                  </h2>
+
+                  <p className="text-sm text-white/40">
+                    Student
+                  </p>
+                </div>
+              </div>
+
+              {/* CHAT MESSAGES */}
+
+              <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
+                <div className="space-y-5">
+                  {messages.map((message) => {
+                    const isAdmin =
+                      message.sender_id === adminId;
+
+                    return (
+                      <div
+                        key={message.id}
+                        className={`flex ${
+                          isAdmin
+                            ? "justify-end"
+                            : "justify-start"
+                        }`}
+                      >
+                        <div
+                          className={`max-w-[70%] rounded-3xl px-5 py-4 ${
+                            isAdmin
+                              ? "bg-gradient-to-r from-fuchsia-500 to-blue-500"
+                              : "bg-white/10"
+                          }`}
+                        >
+                          <p className="text-sm leading-relaxed">
+                            {message.body}
+                          </p>
+
+                          <p className="mt-2 text-right text-xs text-white/50">
+                            {new Date(
+                              message.created_at
+                            ).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  <div ref={bottomRef} />
+                </div>
+              </div>
+
+              {/* INPUT */}
+
+              <div className="shrink-0 border-t border-white/10 p-6">
+                <div className="flex items-center gap-3 rounded-3xl border border-white/10 bg-white/[0.04] p-3">
+                  <button className="rounded-2xl p-3 text-white/50 hover:bg-white/10">
+                    <Paperclip className="h-5 w-5" />
+                  </button>
+
+                  <button className="rounded-2xl p-3 text-white/50 hover:bg-white/10">
+                    <ImageIcon className="h-5 w-5" />
+                  </button>
+
+                  <input
+                    value={messageInput}
+                    onChange={(e) =>
+                      setMessageInput(e.target.value)
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        sendMessage();
+                      }
+                    }}
+                    placeholder="Type your message..."
+                    className="flex-1 bg-transparent px-2 py-3 outline-none placeholder:text-white/30"
+                  />
+
+                  <button
+                    onClick={sendMessage}
+                    className="rounded-2xl bg-gradient-to-r from-fuchsia-500 to-blue-500 p-4 transition hover:scale-[1.02]"
+                  >
+                    <Send className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-1 items-center justify-center text-white/40">
+              Select a conversation
+            </div>
+          )}
         </section>
       </div>
     </main>
-  );
-}
-
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
-      <p className="text-xs text-white/35">{label}</p>
-      <p className="mt-2 break-words text-sm text-white/75">{value}</p>
-    </div>
   );
 }

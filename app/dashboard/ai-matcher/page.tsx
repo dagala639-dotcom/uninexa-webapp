@@ -7,7 +7,19 @@ import MobileNav from "../mobile-nav";
 
 export default function AIMatcherPage() {
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<{
+    summary?: string;
+    matches?: Array<{
+      university: string;
+      country: string;
+      fitScore: number;
+      admissionChance: string;
+      why?: string[];
+      estimatedCost: string;
+      scholarshipAdvice: string;
+      nextSteps?: string[];
+    }>;
+  } | null>(null);
   const [error, setError] = useState("");
 
   async function handleSubmit(formData: FormData) {
@@ -144,7 +156,7 @@ export default function AIMatcherPage() {
                 </p>
 
                 <div className="mt-6 space-y-5">
-                  {result.matches?.map((match: any) => (
+                  {result.matches?.map((match) => (
                     <div
                       key={match.university}
                       className="rounded-3xl border border-white/10 bg-black/20 p-5"

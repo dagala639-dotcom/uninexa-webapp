@@ -81,7 +81,7 @@ export default function AdminDashboardPage() {
       .maybeSingle();
 
     if (roleData?.role !== "admin") {
-      router.push("/admin/login");
+      router.push("/dashboard");
       return;
     }
 

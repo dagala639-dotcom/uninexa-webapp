@@ -39,6 +39,22 @@ type ApplicationRow = {
   created_at: string | null;
 };
 
+type ProfileRow = {
+  user_id: string;
+  full_name: string | null;
+  email: string | null;
+};
+
+const decisionStatuses = [
+  "Submitted",
+  "Under review",
+  "Accepted",
+  "Rejected",
+  "Deferred",
+  "Waitlisted",
+  "Needs attention",
+];
+
 export default function UniversityPortalPage() {
   const supabase = createClient();
   const router = useRouter();
@@ -46,14 +62,18 @@ export default function UniversityPortalPage() {
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<"login" | "dashboard">("login");
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
   const [signingIn, setSigningIn] = useState(false);
+  const [savingId, setSavingId] = useState("");
 
   const [account, setAccount] = useState<UniversityAccount | null>(null);
   const [applicants, setApplicants] = useState<UniversityApplicant[]>([]);
   const [applications, setApplications] = useState<ApplicationRow[]>([]);
+  const [profiles, setProfiles] = useState<ProfileRow[]>([]);
 
   async function loadPortal() {
     setError("");
+    setMessage("");
 
     const {
       data: { session },
@@ -81,6 +101,7 @@ export default function UniversityPortalPage() {
     }
 
     if (!universityAccount) {
+      setError("No university account found for this email.");
       setMode("login");
       setLoading(false);
       return;
@@ -98,8 +119,7 @@ export default function UniversityPortalPage() {
       return;
     }
 
-    const applicationIds =
-      applicantData?.map((item) => item.application_id) || [];
+    const applicationIds = applicantData?.map((item) => item.application_id) || [];
 
     let applicationData: ApplicationRow[] = [];
 
@@ -116,6 +136,24 @@ export default function UniversityPortalPage() {
       applicationData = data || [];
     }
 
+    const studentIds = applicantData?.map((item) => item.student_user_id) || [];
+
+    let profileData: ProfileRow[] = [];
+
+    if (studentIds.length > 0) {
+      const { data, error: profileError } = await supabase
+        .from("profiles")
+        .select("user_id, full_name, email")
+        .in("user_id", studentIds);
+
+      if (profileError) {
+        setError(profileError.message);
+      }
+
+      profileData = data || [];
+    }
+
+    setProfiles(profileData);
     setAccount(universityAccount);
     setApplicants(applicantData || []);
     setApplications(applicationData);
@@ -154,6 +192,7 @@ export default function UniversityPortalPage() {
     setAccount(null);
     setApplicants([]);
     setApplications([]);
+    setProfiles([]);
     setMode("login");
     router.refresh();
   }
@@ -162,16 +201,87 @@ export default function UniversityPortalPage() {
     return applications.find((app) => app.id === applicationId);
   }
 
-  const submittedApplicants = applicants.filter(
-    (item) =>
-      item.status === "Submitted" ||
-      item.status === "Under review" ||
-      item.status === "New applicant"
-  );
+  function getProfile(userId: string) {
+    return profiles.find((profile) => profile.user_id === userId);
+  }
 
-  const acceptedApplicants = applicants.filter(
-    (item) => item.status === "Accepted"
-  );
+  function progressForStatus(status: string) {
+    if (status === "Accepted") return 100;
+    if (status === "Rejected") return 100;
+    if (status === "Deferred") return 85;
+    if (status === "Waitlisted") return 85;
+    if (status === "Under review") return 75;
+    if (status === "Needs attention") return 65;
+    if (status === "Submitted") return 60;
+    return 50;
+  }
+
+  async function updateApplicantStatus(item: UniversityApplicant, status: string) {
+    setSavingId(item.id);
+    setError("");
+    setMessage("");
+
+    const progress = progressForStatus(status);
+
+    const { error: applicantError } = await supabase
+      .from("university_applicants")
+      .update({
+        status,
+      })
+      .eq("id", item.id);
+
+    if (applicantError) {
+      setError(applicantError.message);
+      setSavingId("");
+      return;
+    }
+
+    const { error: applicationError } = await supabase
+      .from("applications")
+      .update({
+        status,
+        progress,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", item.application_id);
+
+    if (applicationError) {
+      setError(applicationError.message);
+      setSavingId("");
+      return;
+    }
+
+    setApplicants((prev) =>
+      prev.map((applicant) =>
+        applicant.id === item.id ? { ...applicant, status } : applicant
+      )
+    );
+
+    setApplications((prev) =>
+      prev.map((app) =>
+        app.id === item.application_id ? { ...app, status, progress } : app
+      )
+    );
+
+    setMessage(`Application marked as ${status}.`);
+    setSavingId("");
+  }
+
+  const underReviewApplicants = applicants.filter((item) => {
+    const app = getApplication(item.application_id);
+    const status = app?.status || item.status;
+
+    return (
+      status === "Submitted" ||
+      status === "Under review" ||
+      status === "New applicant"
+    );
+  });
+
+  const acceptedApplicants = applicants.filter((item) => {
+    const app = getApplication(item.application_id);
+    return app?.status === "Accepted" || item.status === "Accepted";
+  });
 
   if (loading) {
     return (
@@ -198,7 +308,7 @@ export default function UniversityPortalPage() {
 
             <p className="mt-5 max-w-3xl text-sm leading-relaxed text-white/50">
               Review applicants, manage student pipelines, access verified
-              documents, and participate in UniNexa’s African admissions
+              documents, and participate in UniNexa&apos;s African admissions
               infrastructure.
             </p>
           </div>
@@ -226,7 +336,7 @@ export default function UniversityPortalPage() {
                   name="password"
                   label="Password"
                   type="password"
-                  placeholder="••••••••"
+                  placeholder="********"
                 />
               </div>
 
@@ -243,16 +353,6 @@ export default function UniversityPortalPage() {
               >
                 {signingIn ? "Signing in..." : "Access university portal"}
               </button>
-
-              <p className="mt-6 text-center text-sm text-white/45">
-                Need access?{" "}
-                <Link
-                  href="/partner/university-intake"
-                  className="text-fuchsia-300 hover:text-fuchsia-200"
-                >
-                  Submit university interest form
-                </Link>
-              </p>
             </form>
 
             <div className="rounded-[2.5rem] border border-white/10 bg-gradient-to-br from-fuchsia-500/15 to-blue-500/10 p-6 backdrop-blur-xl sm:p-8">
@@ -264,9 +364,9 @@ export default function UniversityPortalPage() {
                 {[
                   "Access qualified African student applicants",
                   "Review student application progress",
-                  "Track verified academic documents",
-                  "Receive structured applicant data",
-                  "Communicate through UniNexa workflows",
+                  "Update applicant decisions",
+                  "Send accepted, rejected, deferred, or waitlisted outcomes",
+                  "Sync decisions directly to student applications",
                   "View future analytics and recruitment insights",
                 ].map((item) => (
                   <div
@@ -292,6 +392,7 @@ export default function UniversityPortalPage() {
             <h1 className="bg-gradient-to-r from-fuchsia-400 via-purple-300 to-blue-400 bg-clip-text text-xl font-bold uppercase tracking-[0.35em] text-transparent">
               UniNexa
             </h1>
+
             <p className="mt-2 text-sm text-white/40">University Portal</p>
           </div>
 
@@ -300,7 +401,6 @@ export default function UniversityPortalPage() {
               ["Dashboard", "/university"],
               ["Applicants", "/university/applicants"],
               ["Documents", "/university/documents"],
-              ["Messages", "/university/messages"],
               ["Profile", "/university/profile"],
               ["Settings", "/university/settings"],
             ].map(([name, href]) => (
@@ -340,26 +440,25 @@ export default function UniversityPortalPage() {
                 {account?.university_name}
               </h2>
 
-              <p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/50">
-                Review applicants, track admissions progress, and manage your
-                institution’s UniNexa presence.
+              <p className="mt-4 max-w-2xl text-sm text-white/45">
+                Review routed applicants and send final decisions directly to
+                the student application tracker.
               </p>
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <button
-                type="button"
-                onClick={loadPortal}
-                className="rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/90"
-              >
-                Refresh
-              </button>
-
-              <span className="w-fit rounded-full border border-emerald-400/20 bg-emerald-500/10 px-5 py-3 text-sm text-emerald-200">
-                {account?.status || "Active"}
-              </span>
-            </div>
+            <button
+              onClick={loadPortal}
+              className="w-fit rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/90"
+            >
+              Refresh data
+            </button>
           </div>
+
+          {message && (
+            <div className="relative mb-6 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-5 py-4 text-sm text-emerald-200">
+              {message}
+            </div>
+          )}
 
           {error && (
             <div className="relative mb-6 rounded-2xl border border-red-400/20 bg-red-500/10 px-5 py-4 text-sm text-red-200">
@@ -370,7 +469,7 @@ export default function UniversityPortalPage() {
           <div className="relative mb-8 grid gap-4 md:grid-cols-4">
             {[
               [String(applicants.length), "Total applicants"],
-              [String(submittedApplicants.length), "Under review"],
+              [String(underReviewApplicants.length), "Under review"],
               [String(acceptedApplicants.length), "Accepted"],
               [account?.membership_tier || "Starter", "Membership"],
             ].map(([value, label]) => (
@@ -384,114 +483,91 @@ export default function UniversityPortalPage() {
             ))}
           </div>
 
-          <div className="relative grid gap-8 xl:grid-cols-[1.3fr_0.8fr]">
-            <div className="rounded-[2.5rem] border border-white/10 bg-gradient-to-br from-white/[0.1] via-white/[0.04] to-white/[0.02] p-6 shadow-[0_0_90px_rgba(168,85,247,0.16)] backdrop-blur-2xl">
-              <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h3 className="text-2xl font-semibold">
-                    Recent applicants
-                  </h3>
-                  <p className="mt-2 text-sm text-white/40">
-                    Student applications routed to your institution.
-                  </p>
-                </div>
+          <div className="relative rounded-[2.5rem] border border-white/10 bg-gradient-to-br from-white/[0.1] via-white/[0.04] to-white/[0.02] p-6 shadow-[0_0_90px_rgba(168,85,247,0.16)] backdrop-blur-2xl">
+            <div className="mb-6">
+              <h3 className="text-2xl font-semibold">Recent applicants</h3>
 
-                <Link
-                  href="/university/applicants"
-                  className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-center text-sm font-semibold text-white/70 transition hover:bg-white/10"
-                >
-                  View all
-                </Link>
-              </div>
-
-              <div className="space-y-4">
-                {applicants.slice(0, 6).map((item) => {
-                  const app = getApplication(item.application_id);
-
-                  return (
-                    <div
-                      key={item.id}
-                      className="rounded-3xl border border-white/10 bg-black/25 p-5"
-                    >
-                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                        <div>
-                          <p className="text-xs uppercase tracking-[0.25em] text-fuchsia-300">
-                            Applicant
-                          </p>
-
-                          <h4 className="mt-2 text-xl font-semibold">
-                            {app?.program || "Program undecided"}
-                          </h4>
-
-                          <p className="mt-1 text-sm text-white/45">
-                            Application status:{" "}
-                            {app?.status || item.status || "New applicant"}
-                          </p>
-
-                          <p className="mt-1 text-xs text-white/30">
-                            Student ID: {item.student_user_id}
-                          </p>
-                        </div>
-
-                        <span className="w-fit rounded-full border border-orange-400/20 bg-orange-500/10 px-3 py-1 text-xs text-orange-200">
-                          {item.status || "New applicant"}
-                        </span>
-                      </div>
-
-                      <div className="mt-5 h-2 overflow-hidden rounded-full bg-white/10">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-fuchsia-500 to-blue-500"
-                          style={{ width: `${app?.progress || 0}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {!applicants.length && (
-                  <div className="rounded-3xl border border-white/10 bg-black/25 p-8 text-center text-sm text-white/45">
-                    No applicants have been routed to your institution yet.
-                  </div>
-                )}
-              </div>
+              <p className="mt-2 text-sm text-white/40">
+                Student applications routed to your institution.
+              </p>
             </div>
 
-            <div className="space-y-6">
-              <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
-                <h3 className="text-xl font-semibold">Institution profile</h3>
+            <div className="space-y-4">
+              {applicants.slice(0, 10).map((item) => {
+                const app = getApplication(item.application_id);
+                const profile = getProfile(item.student_user_id);
+                const currentStatus =
+                  app?.status || item.status || "New applicant";
 
-                <div className="mt-5 space-y-3">
-                  <Info label="Country" value={account?.country || "Not set"} />
-                  <Info label="City" value={account?.city || "Not set"} />
-                  <Info
-                    label="Website"
-                    value={account?.website || "Not set"}
-                  />
-                  <Info
-                    label="Contact"
-                    value={account?.contact_email || "Not set"}
-                  />
+                return (
+                  <div
+                    key={item.id}
+                    className="rounded-3xl border border-white/10 bg-black/25 p-5"
+                  >
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.25em] text-fuchsia-300">
+                          Applicant
+                        </p>
+
+                        <h4 className="mt-2 text-xl font-semibold">
+                          {profile?.full_name || "Unknown student"}
+                        </h4>
+
+                        <p className="mt-1 text-sm text-white/45">
+                          {profile?.email || "No email"}
+                        </p>
+
+                        <p className="mt-2 text-sm text-white/45">
+                          Program: {app?.program || "Program undecided"}
+                        </p>
+
+                        <p className="mt-1 text-sm text-white/45">
+                          Application status: {currentStatus}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-col gap-3 sm:flex-row">
+                        <select
+                          value={currentStatus}
+                          disabled={savingId === item.id}
+                          onChange={(e) =>
+                            updateApplicantStatus(item, e.target.value)
+                          }
+                          className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none disabled:opacity-50"
+                        >
+                          {decisionStatuses.map((status) => (
+                            <option
+                              key={status}
+                              value={status}
+                              className="bg-[#070B14]"
+                            >
+                              {status}
+                            </option>
+                          ))}
+                        </select>
+
+                        <span className="w-fit rounded-full border border-orange-400/20 bg-orange-500/10 px-4 py-3 text-sm text-orange-200">
+                          {currentStatus}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 h-2 overflow-hidden rounded-full bg-white/10">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-fuchsia-500 to-blue-500"
+                        style={{ width: `${app?.progress || 0}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+
+              {!applicants.length && (
+                <div className="rounded-3xl border border-white/10 bg-black/25 p-8 text-center text-sm text-white/45">
+                  No applicants have been routed to your institution yet.
                 </div>
-              </div>
-
-              <div className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-fuchsia-500/15 to-blue-500/10 p-6 backdrop-blur-xl">
-                <h3 className="text-xl font-semibold">
-                  UniNexa Partner Access
-                </h3>
-
-                <p className="mt-3 text-sm leading-relaxed text-white/50">
-                  This portal gives your institution access to qualified African
-                  student applicants, admissions workflows, document tracking,
-                  and future applicant analytics.
-                </p>
-
-                <Link
-                  href="/university/applicants"
-                  className="mt-5 block rounded-2xl bg-white px-5 py-3 text-center text-sm font-semibold text-black transition hover:bg-white/90"
-                >
-                  View applicants
-                </Link>
-              </div>
+              )}
             </div>
           </div>
         </section>
@@ -509,20 +585,12 @@ function Input({
   return (
     <div>
       <label className="mb-2 block text-sm text-white/60">{label}</label>
+
       <input
         {...props}
         required
         className="w-full rounded-2xl border border-white/10 bg-black/20 px-5 py-4 text-sm text-white outline-none placeholder:text-white/30 focus:border-fuchsia-400/40"
       />
-    </div>
-  );
-}
-
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-      <p className="text-xs text-white/35">{label}</p>
-      <p className="mt-2 break-words text-sm text-white/75">{value}</p>
     </div>
   );
 }

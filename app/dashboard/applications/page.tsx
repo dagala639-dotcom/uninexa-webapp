@@ -9,7 +9,6 @@ async function deleteApplication(formData: FormData) {
   "use server";
 
   const applicationId = String(formData.get("application_id") || "");
-
   const supabase = await createClient();
 
   const {
@@ -60,10 +59,7 @@ async function submitToUniversity(formData: FormData) {
     .ilike("university_name", universityName)
     .maybeSingle();
 
-  if (universityError) {
-    throw new Error(universityError.message);
-  }
-
+  if (universityError) throw new Error(universityError.message);
   if (!universityAccount) {
     throw new Error(`No university account found for ${universityName}`);
   }
@@ -72,7 +68,7 @@ async function submitToUniversity(formData: FormData) {
     .from("applications")
     .update({
       status: "Submitted",
-      progress: 100,
+      progress: 60,
       submitted_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
@@ -86,7 +82,7 @@ async function submitToUniversity(formData: FormData) {
         university_account_id: universityAccount.id,
         application_id: applicationId,
         student_user_id: user.id,
-        status: "New applicant",
+        status: "Submitted",
         updated_at: new Date().toISOString(),
       },
       {
@@ -94,13 +90,56 @@ async function submitToUniversity(formData: FormData) {
       }
     );
 
-  if (applicantError) {
-    throw new Error(applicantError.message);
-  }
+  if (applicantError) throw new Error(applicantError.message);
 
   revalidatePath("/dashboard/applications");
   revalidatePath("/university");
   revalidatePath("/university/applicants");
+}
+
+function getStatusStyle(status: string) {
+  if (status === "Accepted") {
+    return "border-emerald-400/20 bg-emerald-500/10 text-emerald-300";
+  }
+
+  if (status === "Rejected") {
+    return "border-red-400/20 bg-red-500/10 text-red-300";
+  }
+
+  if (status === "Under review") {
+    return "border-blue-400/20 bg-blue-500/10 text-blue-300";
+  }
+
+  if (status === "Submitted") {
+    return "border-purple-400/20 bg-purple-500/10 text-purple-300";
+  }
+
+  if (status === "Deferred" || status === "Waitlisted") {
+    return "border-amber-400/20 bg-amber-500/10 text-amber-300";
+  }
+
+  return "border-white/10 bg-white/10 text-white/70";
+}
+
+function getStatusMessage(status: string) {
+  if (status === "Accepted") return "Congratulations - university accepted you";
+  if (status === "Rejected") return "University decision received";
+  if (status === "Under review") return "University is reviewing your file";
+  if (status === "Submitted") return "Sent to university portal";
+  if (status === "Deferred") return "Decision deferred";
+  if (status === "Waitlisted") return "You are on the waitlist";
+  if (status === "Needs attention") return "Action required";
+  return "Application in progress";
+}
+
+function getProgress(status: string, progress: number | null) {
+  if (status === "Accepted") return 100;
+  if (status === "Rejected") return 100;
+  if (status === "Under review") return 75;
+  if (status === "Submitted") return 60;
+  if (status === "Deferred") return 85;
+  if (status === "Waitlisted") return 85;
+  return progress || 0;
 }
 
 export default async function ApplicationsPage() {
@@ -149,28 +188,33 @@ export default async function ApplicationsPage() {
       return {
         ...app,
         selected_program: selectedProgram,
+        final_progress: getProgress(app.status || "In progress", app.progress),
       };
     }) || [];
 
   const totalApplications = applicationsWithPrograms.length;
 
   const inProgress = applicationsWithPrograms.filter(
-    (app) => app.status === "In progress"
-  ).length;
-
-  const ready = applicationsWithPrograms.filter(
-    (app) => (app.progress || 0) >= 80
+    (app) => !["Submitted", "Under review", "Accepted", "Rejected"].includes(app.status)
   ).length;
 
   const submitted = applicationsWithPrograms.filter(
-    (app) => app.status === "Submitted"
+    (app) => app.status === "Submitted" || app.status === "Under review"
+  ).length;
+
+  const accepted = applicationsWithPrograms.filter(
+    (app) => app.status === "Accepted"
+  ).length;
+
+  const decisions = applicationsWithPrograms.filter((app) =>
+    ["Accepted", "Rejected", "Deferred", "Waitlisted"].includes(app.status)
   ).length;
 
   const averageProgress =
     totalApplications > 0
       ? Math.round(
           applicationsWithPrograms.reduce(
-            (sum, app) => sum + (app.progress || 0),
+            (sum, app) => sum + (app.final_progress || 0),
             0
           ) / totalApplications
         )
@@ -181,8 +225,8 @@ export default async function ApplicationsPage() {
   const stats = [
     ["Total applications", String(totalApplications)],
     ["In progress", String(inProgress)],
-    ["Ready", String(ready)],
-    ["Submitted", String(submitted)],
+    ["Submitted / review", String(submitted)],
+    ["Accepted", String(accepted)],
   ];
 
   return (
@@ -233,8 +277,8 @@ export default async function ApplicationsPage() {
                 Your university applications.
               </h2>
               <p className="mt-3 max-w-2xl text-sm text-white/50">
-                Apply from UniNexa and track your application into the university
-                partner pipeline.
+                Track submissions, university review, and final admission
+                decisions from your UniNexa pipeline.
               </p>
             </div>
 
@@ -271,13 +315,14 @@ export default async function ApplicationsPage() {
                 </div>
 
                 <p className="mt-4 text-sm text-white/45">
-                  Once submitted, partner universities can see the application in
-                  their UniNexa portal.
+                  {decisions > 0
+                    ? `${decisions} application decision received.`
+                    : "Once submitted, partner universities can update your status directly."}
                 </p>
               </div>
 
               <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
-                <p className="text-sm text-white/50">Next application</p>
+                <p className="text-sm text-white/50">Latest application</p>
 
                 {nextApplication ? (
                   <>
@@ -289,6 +334,9 @@ export default async function ApplicationsPage() {
                     </p>
                     <p className="mt-1 text-sm text-white/40">
                       Program: {nextApplication.selected_program}
+                    </p>
+                    <p className="mt-1 text-sm text-white/40">
+                      Status: {nextApplication.status || "In progress"}
                     </p>
 
                     <Link
@@ -327,7 +375,7 @@ export default async function ApplicationsPage() {
                     Application pipeline
                   </h3>
                   <p className="mt-1 text-sm text-white/40">
-                    Saved applications and university submission status.
+                    Saved applications, submissions, and university decisions.
                   </p>
                 </div>
 
@@ -359,7 +407,17 @@ export default async function ApplicationsPage() {
               ) : (
                 <div className="space-y-4">
                   {applicationsWithPrograms.map((app) => {
-                    const isSubmitted = app.status === "Submitted";
+                    const status = app.status || "In progress";
+                    const isSubmittedOrBeyond = [
+                      "Submitted",
+                      "Under review",
+                      "Accepted",
+                      "Rejected",
+                      "Deferred",
+                      "Waitlisted",
+                    ].includes(status);
+
+                    const canDelete = !isSubmittedOrBeyond;
 
                     return (
                       <div
@@ -380,41 +438,50 @@ export default async function ApplicationsPage() {
                           </div>
 
                           <span
-                            className={`w-fit rounded-full border px-4 py-2 text-xs ${
-                              isSubmitted
-                                ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-300"
-                                : "border-white/10 bg-white/10 text-white/70"
-                            }`}
+                            className={`w-fit rounded-full border px-4 py-2 text-xs ${getStatusStyle(
+                              status
+                            )}`}
                           >
-                            {app.status || "In progress"}
+                            {status}
                           </span>
                         </div>
 
                         <div className="mt-5">
                           <div className="mb-2 flex justify-between text-sm">
                             <span className="text-white/40">Progress</span>
-                            <span>{app.progress || 0}%</span>
+                            <span>{app.final_progress || 0}%</span>
                           </div>
 
                           <div className="h-2 overflow-hidden rounded-full bg-white/10">
                             <div
                               className="h-full rounded-full bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500"
-                              style={{ width: `${app.progress || 0}%` }}
+                              style={{ width: `${app.final_progress || 0}%` }}
                             />
                           </div>
                         </div>
 
                         <div className="mt-5 flex flex-wrap gap-2">
-                          {isSubmitted ? (
-                            <>
-                              <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200">
-                                Sent to university portal
-                              </span>
-                              <span className="rounded-full border border-blue-400/20 bg-blue-500/10 px-3 py-1 text-xs text-blue-200">
-                                Awaiting university review
-                              </span>
-                            </>
-                          ) : (
+                          <span
+                            className={`rounded-full border px-3 py-1 text-xs ${getStatusStyle(
+                              status
+                            )}`}
+                          >
+                            {getStatusMessage(status)}
+                          </span>
+
+                          {status === "Submitted" && (
+                            <span className="rounded-full border border-blue-400/20 bg-blue-500/10 px-3 py-1 text-xs text-blue-200">
+                              Awaiting university review
+                            </span>
+                          )}
+
+                          {status === "Accepted" && (
+                            <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200">
+                              Prepare offer letter and visa steps
+                            </span>
+                          )}
+
+                          {!isSubmittedOrBeyond &&
                             ["Program", "Documents", "Deadline"].map((item) => (
                               <span
                                 key={item}
@@ -422,8 +489,7 @@ export default async function ApplicationsPage() {
                               >
                                 Set up: {item}
                               </span>
-                            ))
-                          )}
+                            ))}
                         </div>
 
                         <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -432,22 +498,23 @@ export default async function ApplicationsPage() {
                           </p>
 
                           <div className="flex flex-col gap-3 sm:flex-row">
-                            {!isSubmitted && (
-  <form action={deleteApplication}>
-    <input
-      type="hidden"
-      name="application_id"
-      value={app.id}
-    />
+                            {canDelete && (
+                              <form action={deleteApplication}>
+                                <input
+                                  type="hidden"
+                                  name="application_id"
+                                  value={app.id}
+                                />
 
-    <button
-      type="submit"
-      className="rounded-2xl border border-red-400/20 bg-red-500/10 px-5 py-3 text-sm font-semibold text-red-300 transition hover:bg-red-500/20"
-    >
-      Delete
-    </button>
-  </form>
-)}
+                                <button
+                                  type="submit"
+                                  className="rounded-2xl border border-red-400/20 bg-red-500/10 px-5 py-3 text-sm font-semibold text-red-300 transition hover:bg-red-500/20"
+                                >
+                                  Delete
+                                </button>
+                              </form>
+                            )}
+
                             <Link
                               href={`/dashboard/applications/${app.id}`}
                               className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-center text-sm font-semibold text-white/70 transition hover:bg-white/10"
@@ -455,7 +522,7 @@ export default async function ApplicationsPage() {
                               Open
                             </Link>
 
-                            {!isSubmitted && (
+                            {!isSubmittedOrBeyond && (
                               <form action={submitToUniversity}>
                                 <input
                                   type="hidden"

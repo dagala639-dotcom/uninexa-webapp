@@ -62,11 +62,28 @@ const exams = [
   "AP Exams",
 ];
 
-type Profile = Record<string, any>;
+type ProfileValue = string | null | undefined;
+type Profile = Record<string, ProfileValue>;
 
 export default function ProfilePage() {
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
+
+  const currentYear = new Date().getFullYear();
+
+  const yearStartedOptions = useMemo(() => {
+    return Array.from({ length: currentYear - 1990 + 1 }, (_, i) =>
+      String(currentYear - i)
+    );
+  }, [currentYear]);
+
+  const yearCompletedOptions = useMemo(() => {
+    const lastYear = currentYear + 3;
+
+    return Array.from({ length: lastYear - 1990 + 1 }, (_, i) =>
+      String(lastYear - i)
+    );
+  }, [currentYear]);
 
   const [activeSection, setActiveSection] = useState("Personal Information");
   const [profile, setProfile] = useState<Profile>({});
@@ -104,6 +121,7 @@ export default function ProfilePage() {
         setSchoolSearch(data.high_school_name || "");
       } else {
         setProfile({
+          user_id: user.id,
           full_name: user.user_metadata?.full_name || "",
           email: user.email || "",
           country: "Kenya",
@@ -138,6 +156,7 @@ export default function ProfilePage() {
     }));
 
     setSaveStatus("Saving...");
+    setMessage("");
   }
 
   function isSectionComplete(section: string) {
@@ -209,8 +228,14 @@ export default function ProfilePage() {
 
           if (!user) return;
 
+          const cleanProfile = Object.fromEntries(
+            Object.entries(nextProfile).filter(
+              ([key]) => key !== "id" && key !== "created_at"
+            )
+          ) as Profile;
+
           const payload = {
-            ...nextProfile,
+            ...cleanProfile,
             user_id: user.id,
             email: nextProfile.email || user.email,
             county: nextCounty,
@@ -221,19 +246,57 @@ export default function ProfilePage() {
             updated_at: new Date().toISOString(),
           };
 
-          const { data, error } = await supabase
+          const { data: updatedProfile, error: updateError } = await supabase
             .from("profiles")
-            .upsert(payload, { onConflict: "user_id" })
+            .update(payload)
+            .eq("user_id", user.id)
             .select()
-            .single();
+            .maybeSingle();
 
-          if (error) {
+          if (updateError) {
             setSaveStatus("Failed to save");
-            setMessage(error.message);
+            setMessage(updateError.message);
             return;
           }
 
-          setProfile(data || payload);
+          if (updatedProfile) {
+            setProfile(updatedProfile);
+            setSaveStatus("Saved");
+            return;
+          }
+
+          const { data: insertedProfile, error: insertError } = await supabase
+            .from("profiles")
+            .insert(payload)
+            .select()
+            .single();
+
+          if (insertError) {
+            const { data: retryProfile, error: retryError } = await supabase
+              .from("profiles")
+              .update(payload)
+              .eq("user_id", user.id)
+              .select()
+              .maybeSingle();
+
+            if (retryError) {
+              setSaveStatus("Failed to save");
+              setMessage(retryError.message);
+              return;
+            }
+
+            if (retryProfile) {
+              setProfile(retryProfile);
+              setSaveStatus("Saved");
+              return;
+            }
+
+            setSaveStatus("Failed to save");
+            setMessage(insertError.message);
+            return;
+          }
+
+          setProfile(insertedProfile || payload);
           setSaveStatus("Saved");
         },
         1000
@@ -517,8 +580,8 @@ export default function ProfilePage() {
                   <FormGrid>
                     <Select label="School county" value={profile.school_county || ""} onChange={(e) => updateField("school_county", e.target.value)} options={counties} />
                     <Select required label="Curriculum" value={profile.curriculum || ""} onChange={(e) => updateField("curriculum", e.target.value)} options={["KCSE", "IGCSE", "A-Level", "IB", "Other"]} />
-                    <Input label="Year started" value={profile.year_started || ""} onChange={(e) => updateField("year_started", e.target.value)} />
-                    <Input required label="Year completed / expected" value={profile.year_completed || ""} onChange={(e) => updateField("year_completed", e.target.value)} />
+                    <Select label="Year started" value={profile.year_started || ""} onChange={(e) => updateField("year_started", e.target.value)} options={yearStartedOptions} />
+                    <Select required label="Year completed / expected" value={profile.year_completed || ""} onChange={(e) => updateField("year_completed", e.target.value)} options={yearCompletedOptions} />
                     <Input label="KCSE index number" value={profile.kcse_index_number || ""} onChange={(e) => updateField("kcse_index_number", e.target.value)} />
                     <Select required label="KCSE mean grade" value={profile.kcse_mean_grade || ""} onChange={(e) => updateField("kcse_mean_grade", e.target.value)} options={["A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-", "E"]} />
                   </FormGrid>

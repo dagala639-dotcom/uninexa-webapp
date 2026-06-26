@@ -12,6 +12,7 @@ import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "../../../logout-button";
 import MobileNav from "../../../mobile-nav";
 import { submitApplication } from "./actions";
+import DownloadApplicationButton from "./download-application-button";
 
 const requiredSections = [
   "general",
@@ -79,18 +80,27 @@ export default async function ReviewSubmitPage({
 
     const answers = form.answers as Record<string, string>;
 
-    return Object.values(answers).some((value) => {
-      return value && String(value).trim().length > 0;
-    });
+    return Object.values(answers).some(
+      (value) => value && String(value).trim().length > 0
+    );
+  }
+
+  function getSectionAnswers(section: string) {
+    const form = savedSections.find((item) => item.section === section);
+    return (form?.answers || {}) as Record<string, string>;
   }
 
   const completion = requiredSections.map((section) => ({
     section,
     label: sectionLabels[section],
     complete: sectionComplete(section),
+    answers: getSectionAnswers(section),
   }));
 
   const allComplete = completion.every((item) => item.complete);
+  const isSubmitted =
+    application.status === "Submitted" || submitted === "1";
+
   const submit = submitApplication.bind(null, id);
 
   return (
@@ -172,7 +182,7 @@ export default async function ReviewSubmitPage({
           {submitted === "1" && (
             <div className="mb-6 flex items-center gap-3 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-sm text-emerald-200">
               <CheckCircle2 className="h-5 w-5" />
-              Application submitted successfully.
+              Application submitted successfully. You can now download the PDF.
             </div>
           )}
 
@@ -184,7 +194,39 @@ export default async function ReviewSubmitPage({
           )}
 
           <div className="grid gap-6 xl:grid-cols-[1fr_0.75fr]">
-            <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl sm:p-6">
+            <div
+              id={`application-pdf-${application.id}`}
+              className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl sm:p-6"
+            >
+              <div className="mb-8 rounded-3xl border border-white/10 bg-black/20 p-5">
+                <p className="text-xs uppercase tracking-[0.25em] text-fuchsia-300">
+                  UniNexa application package
+                </p>
+
+                <h3 className="mt-3 text-3xl font-bold">
+                  {application.university_name}
+                </h3>
+
+                <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                  <InfoCard
+                    label="Country"
+                    value={application.country || "Not set"}
+                  />
+                  <InfoCard
+                    label="Program"
+                    value={application.program || "Not selected"}
+                  />
+                  <InfoCard
+                    label="Status"
+                    value={application.status || "In progress"}
+                  />
+                  <InfoCard
+                    label="Application ID"
+                    value={application.id}
+                  />
+                </div>
+              </div>
+
               <div className="flex items-center gap-3">
                 <FileCheck2 className="h-6 w-6 text-fuchsia-300" />
 
@@ -199,39 +241,66 @@ export default async function ReviewSubmitPage({
 
               <div className="mt-8 space-y-4">
                 {completion.map((item) => (
-                  <Link
+                  <div
                     key={item.section}
-                    href={`/dashboard/applications/${id}/${item.section}`}
-                    className="flex items-center justify-between gap-4 rounded-2xl border border-white/10 bg-black/20 p-5 transition hover:bg-white/[0.06]"
+                    className="rounded-2xl border border-white/10 bg-black/20 p-5"
                   >
-                    <div className="flex items-center gap-4">
-                      <div
-                        className={`flex h-10 w-10 items-center justify-center rounded-full ${
-                          item.complete
-                            ? "bg-emerald-500 text-white"
-                            : "bg-white/10 text-white/40"
-                        }`}
-                      >
-                        {item.complete ? (
-                          <CheckCircle2 className="h-5 w-5" />
-                        ) : (
-                          <AlertCircle className="h-5 w-5" />
-                        )}
+                    <Link
+                      href={`/dashboard/applications/${id}/${item.section}`}
+                      className="flex items-center justify-between gap-4 transition hover:opacity-80"
+                    >
+                      <div className="flex items-center gap-4">
+                        <div
+                          className={`flex h-10 w-10 items-center justify-center rounded-full ${
+                            item.complete
+                              ? "bg-emerald-500 text-white"
+                              : "bg-white/10 text-white/40"
+                          }`}
+                        >
+                          {item.complete ? (
+                            <CheckCircle2 className="h-5 w-5" />
+                          ) : (
+                            <AlertCircle className="h-5 w-5" />
+                          )}
+                        </div>
+
+                        <div>
+                          <p className="font-semibold">{item.label}</p>
+
+                          <p className="mt-1 text-sm text-white/40">
+                            {item.complete ? "Completed" : "Needs attention"}
+                          </p>
+                        </div>
                       </div>
 
-                      <div>
-                        <p className="font-semibold">{item.label}</p>
+                      <span className="text-sm text-fuchsia-300">
+                        Review
+                      </span>
+                    </Link>
 
-                        <p className="mt-1 text-sm text-white/40">
-                          {item.complete ? "Completed" : "Needs attention"}
-                        </p>
+                    {Object.keys(item.answers).length > 0 && (
+                      <div className="mt-5 grid gap-3 border-t border-white/10 pt-5">
+                        {Object.entries(item.answers).map(([key, value]) => {
+                          if (!value) return null;
+
+                          return (
+                            <div
+                              key={key}
+                              className="rounded-xl border border-white/10 bg-white/[0.03] p-3"
+                            >
+                              <p className="text-xs uppercase tracking-[0.18em] text-white/35">
+                                {key.replaceAll("_", " ")}
+                              </p>
+
+                              <p className="mt-1 text-sm text-white/75">
+                                {String(value)}
+                              </p>
+                            </div>
+                          );
+                        })}
                       </div>
-                    </div>
-
-                    <span className="text-sm text-fuchsia-300">
-                      Review
-                    </span>
-                  </Link>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>
@@ -265,6 +334,14 @@ export default async function ReviewSubmitPage({
                     {application.program || "Not selected"}
                   </p>
                 </div>
+
+                {isSubmitted && (
+                  <div className="mt-4">
+                    <DownloadApplicationButton
+                      applicationId={application.id}
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-fuchsia-500/15 to-blue-500/10 p-6 backdrop-blur-xl">
@@ -284,19 +361,30 @@ export default async function ReviewSubmitPage({
                   </div>
                 )}
 
-                <form action={submit} className="mt-6">
-                  <button
-                    type="submit"
-                    disabled={!allComplete || application.status === "Submitted"}
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500 px-6 py-4 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/20 transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <Send className="h-4 w-4" />
+                {isSubmitted ? (
+                  <div className="mt-6 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-sm text-emerald-200">
+                    This application has already been submitted.
+                  </div>
+                ) : (
+                  <form action={submit} className="mt-6">
+                    <button
+                      type="submit"
+                      disabled={!allComplete}
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500 px-6 py-4 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/20 transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <Send className="h-4 w-4" />
+                      Submit Application
+                    </button>
+                  </form>
+                )}
 
-                    {application.status === "Submitted"
-                      ? "Application Submitted"
-                      : "Submit Application"}
-                  </button>
-                </form>
+                {isSubmitted && (
+                  <div className="mt-4">
+                    <DownloadApplicationButton
+                      applicationId={application.id}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -305,5 +393,24 @@ export default async function ReviewSubmitPage({
 
       <MobileNav />
     </main>
+  );
+}
+
+function InfoCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+      <p className="text-xs uppercase tracking-[0.18em] text-white/35">
+        {label}
+      </p>
+      <p className="mt-2 break-words text-sm font-semibold text-white/80">
+        {value}
+      </p>
+    </div>
   );
 }

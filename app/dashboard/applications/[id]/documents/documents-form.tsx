@@ -8,7 +8,8 @@ import { saveDocumentsDraft } from "./actions";
 
 type Question = {
   id: string;
-  label: string;
+  label?: string;
+  question?: string;
   type: string;
   required?: boolean;
   options?: string[];
@@ -27,19 +28,23 @@ export default function DocumentsForm({
   questions,
   initialAnswers,
   documents,
+  locked,
 }: {
   applicationId: string;
   questions: Question[];
   initialAnswers: Record<string, string>;
   documents: DocumentRecord[];
+  locked?: boolean;
 }) {
   const [formData, setFormData] = useState<Record<string, string>>(() => {
     const values: Record<string, string> = {};
 
     questions.forEach((question) => {
+      const title = question.label || question.question || question.id;
+
       const uploaded = documents.some(
         (doc) =>
-          doc.document_type === question.label ||
+          doc.document_type === title ||
           doc.document_type === question.id ||
           Boolean(doc.file_path)
       );
@@ -52,10 +57,12 @@ export default function DocumentsForm({
   });
 
   const [saveStatus, setSaveStatus] = useState<
-    "Saved" | "Saving..." | "Failed to save"
-  >("Saved");
+    "Saved" | "Saving..." | "Failed to save" | "Submitted — locked"
+  >(locked ? "Submitted — locked" : "Saved");
 
   function handleCheckboxChange(e: React.ChangeEvent<HTMLInputElement>) {
+    if (locked) return;
+
     const { name, checked } = e.target;
 
     setFormData((prev) => ({
@@ -69,6 +76,8 @@ export default function DocumentsForm({
   const autosave = useMemo(
     () =>
       debounce(async (data: Record<string, string>) => {
+        if (locked) return;
+
         try {
           await saveDocumentsDraft(applicationId, data);
           setSaveStatus("Saved");
@@ -76,16 +85,18 @@ export default function DocumentsForm({
           setSaveStatus("Failed to save");
         }
       }, 1000),
-    [applicationId]
+    [applicationId, locked]
   );
 
   useEffect(() => {
+    if (locked) return;
+
     autosave(formData);
 
     return () => {
       autosave.cancel();
     };
-  }, [formData, autosave]);
+  }, [formData, autosave, locked]);
 
   return (
     <div className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl sm:p-6">
@@ -96,8 +107,9 @@ export default function DocumentsForm({
           </h3>
 
           <p className="mt-2 text-sm text-white/45">
-            Mark each document as complete once it has been uploaded. Changes
-            save automatically.
+            {locked
+              ? "This application has been submitted and the document checklist is now read-only."
+              : "Mark each document as complete once it has been uploaded. Changes save automatically."}
           </p>
         </div>
 
@@ -108,7 +120,9 @@ export default function DocumentsForm({
                 ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-300"
                 : saveStatus === "Saving..."
                   ? "border-amber-400/20 bg-amber-500/10 text-amber-300"
-                  : "border-red-400/20 bg-red-500/10 text-red-300"
+                  : saveStatus === "Submitted — locked"
+                    ? "border-orange-400/20 bg-orange-500/10 text-orange-300"
+                    : "border-red-400/20 bg-red-500/10 text-red-300"
             }`}
           >
             {saveStatus}
@@ -116,7 +130,11 @@ export default function DocumentsForm({
 
           <Link
             href="/dashboard/documents"
-            className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-fuchsia-500 to-blue-500 px-5 py-3 text-sm font-semibold"
+            className={`inline-flex items-center gap-2 rounded-2xl px-5 py-3 text-sm font-semibold ${
+              locked
+                ? "pointer-events-none border border-white/10 bg-white/5 text-white/35"
+                : "bg-gradient-to-r from-fuchsia-500 to-blue-500 text-white"
+            }`}
           >
             <UploadCloud className="h-4 w-4" />
             Upload documents
@@ -126,9 +144,11 @@ export default function DocumentsForm({
 
       <div className="grid gap-4">
         {questions.map((question) => {
+          const title = question.label || question.question || question.id;
+
           const uploaded = documents.some(
             (doc) =>
-              doc.document_type === question.label ||
+              doc.document_type === title ||
               doc.document_type === question.id ||
               Boolean(doc.file_path)
           );
@@ -146,16 +166,17 @@ export default function DocumentsForm({
                 name={question.id}
                 value="completed"
                 checked={checked}
+                disabled={locked}
                 onChange={handleCheckboxChange}
-                className="mt-1"
+                className="mt-1 disabled:cursor-not-allowed disabled:opacity-50"
               />
 
               <div className="flex-1">
                 <div className="flex items-center gap-3">
                   <FileText className="h-5 w-5 text-fuchsia-300" />
 
-                  <p className="font-semibold">
-                    {question.label}
+                  <p className="font-semibold text-white">
+                    {title}
                     {question.required && (
                       <span className="ml-1 text-red-400">*</span>
                     )}
@@ -195,9 +216,14 @@ export default function DocumentsForm({
 
         <button
           type="button"
-          className="rounded-2xl border border-white/10 bg-white/5 px-6 py-4 text-sm font-semibold text-white/70"
+          disabled
+          className={`rounded-2xl border px-6 py-4 text-sm font-semibold ${
+            locked
+              ? "border-orange-400/20 bg-orange-500/10 text-orange-300"
+              : "border-white/10 bg-white/5 text-white/70"
+          }`}
         >
-          Saved automatically
+          {locked ? "Submitted — locked" : "Saved automatically"}
         </button>
 
         <Link

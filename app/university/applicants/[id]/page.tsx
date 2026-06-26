@@ -49,8 +49,8 @@ type ApplicationForm = {
   application_id: string;
   user_id: string;
   section: string | null;
-  answers?: Record<string, any> | null;
-  form_data?: Record<string, any> | null;
+  answers?: Record<string, unknown> | null;
+  form_data?: Record<string, unknown> | null;
   status?: string | null;
   updated_at?: string | null;
 };

@@ -40,10 +40,9 @@ type FormRow = {
   updated_at: string | null;
 };
 
-const statusOptions = [
-  "In progress",
-  "Under review",
+const visibleStatuses = [
   "Submitted",
+  "Under review",
   "Accepted",
   "Rejected",
   "Deferred",
@@ -60,7 +59,6 @@ export default function AdminApplicationsPage() {
   const [forms, setForms] = useState<FormRow[]>([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
-  const [savingId, setSavingId] = useState("");
   const [message, setMessage] = useState("");
 
   async function loadData() {
@@ -92,6 +90,7 @@ export default function AdminApplicationsPage() {
     const { data: appData, error: appError } = await supabase
       .from("applications")
       .select("*")
+      .in("status", visibleStatuses)
       .order("updated_at", { ascending: false });
 
     const { data: profileData, error: profileError } = await supabase
@@ -137,35 +136,6 @@ export default function AdminApplicationsPage() {
         (value) => value && String(value).trim().length > 0
       );
     }).length;
-  }
-
-  async function updateApplicationStatus(applicationId: string, status: string) {
-    setSavingId(applicationId);
-    setMessage("");
-
-    const payload: Record<string, any> = {
-      status,
-      updated_at: new Date().toISOString(),
-    };
-
-    if (status === "Submitted") {
-      payload.submitted_at = new Date().toISOString();
-      payload.progress = 100;
-    }
-
-    const { error } = await supabase
-      .from("applications")
-      .update(payload)
-      .eq("id", applicationId);
-
-    if (error) {
-      setMessage(error.message);
-    } else {
-      setMessage("Application status updated.");
-      await loadData();
-    }
-
-    setSavingId("");
   }
 
   const filteredApplications = useMemo(() => {
@@ -262,31 +232,21 @@ export default function AdminApplicationsPage() {
               </Link>
             ))}
           </nav>
-
-          <Link
-            href="/dashboard"
-            className="mt-8 block rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white/60 transition hover:bg-white/[0.06]"
-          >
-            Back to student portal
-          </Link>
         </aside>
 
         <section className="relative flex-1 overflow-hidden p-4 pb-20 sm:p-6 lg:p-10">
-          <div className="absolute -right-40 -top-40 h-96 w-96 rounded-full bg-fuchsia-600/20 blur-3xl" />
-          <div className="absolute left-1/3 top-72 h-96 w-96 rounded-full bg-blue-500/10 blur-3xl" />
-
           <div className="relative mb-8">
             <p className="text-sm font-medium text-fuchsia-300">
               Applications
             </p>
 
             <h2 className="mt-2 text-4xl font-bold tracking-tight lg:text-6xl">
-              Application operations.
+              Submitted applications.
             </h2>
 
             <p className="mt-4 max-w-2xl text-sm leading-relaxed text-white/50">
-              Track student applications, review progress, monitor submitted
-              files, update outcomes, and manage university application status.
+              Admin can view submitted applications only. University accounts
+              handle decisions like accepted, rejected, or under review.
             </p>
           </div>
 
@@ -298,7 +258,7 @@ export default function AdminApplicationsPage() {
 
           <div className="relative mb-8 grid gap-4 md:grid-cols-5">
             {[
-              [String(applications.length), "Total applications"],
+              [String(applications.length), "Visible applications"],
               [String(submittedCount), "Submitted"],
               [String(acceptedCount), "Accepted"],
               [String(needsAttentionCount), "Needs attention"],
@@ -318,7 +278,7 @@ export default function AdminApplicationsPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by student, email, university, country, program, status, KCSE grade, or ID..."
+              placeholder="Search submitted applications..."
               className="rounded-2xl border border-white/10 bg-black/25 px-5 py-4 text-sm text-white outline-none placeholder:text-white/30 focus:border-fuchsia-400/50"
             />
 
@@ -328,10 +288,10 @@ export default function AdminApplicationsPage() {
               className="rounded-2xl border border-white/10 bg-black/25 px-5 py-4 text-sm text-white outline-none focus:border-fuchsia-400/50"
             >
               <option value="All" className="bg-[#070B14]">
-                All statuses
+                All submitted statuses
               </option>
 
-              {statusOptions.map((status) => (
+              {visibleStatuses.map((status) => (
                 <option key={status} value={status} className="bg-[#070B14]">
                   {status}
                 </option>
@@ -351,8 +311,7 @@ export default function AdminApplicationsPage() {
             <div className="mb-6">
               <h3 className="text-2xl font-semibold">Application records</h3>
               <p className="mt-2 text-sm text-white/40">
-                Connected directly to Supabase applications, profiles, and
-                application_forms.
+                Read-only admin view of submitted applications.
               </p>
             </div>
 
@@ -388,7 +347,7 @@ export default function AdminApplicationsPage() {
                       </div>
 
                       <div className="w-fit rounded-full border border-orange-400/20 bg-orange-500/10 px-4 py-2 text-sm text-orange-200">
-                        {app.status || "In progress"}
+                        {app.status || "Submitted"}
                       </div>
                     </div>
 
@@ -403,14 +362,8 @@ export default function AdminApplicationsPage() {
                       <Info label="Progress" value={`${app.progress || 0}%`} />
                       <Info label="Completed sections" value={`${completeSections}/8`} />
                       <Info label="Deadline" value={app.deadline || "Not set"} />
-                      <Info
-                        label="KCSE grade"
-                        value={profile?.kcse_mean_grade || "Not set"}
-                      />
-                      <Info
-                        label="High school"
-                        value={profile?.high_school_name || "Not set"}
-                      />
+                      <Info label="KCSE grade" value={profile?.kcse_mean_grade || "Not set"} />
+                      <Info label="High school" value={profile?.high_school_name || "Not set"} />
                       <Info
                         label="Created"
                         value={
@@ -431,24 +384,9 @@ export default function AdminApplicationsPage() {
                     </div>
 
                     <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_0.4fr]">
-                      <select
-                        value={app.status || "In progress"}
-                        onChange={(e) =>
-                          updateApplicationStatus(app.id, e.target.value)
-                        }
-                        disabled={savingId === app.id}
-                        className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-sm text-white outline-none focus:border-fuchsia-400/50 disabled:opacity-50"
-                      >
-                        {statusOptions.map((status) => (
-                          <option
-                            key={status}
-                            value={status}
-                            className="bg-[#070B14]"
-                          >
-                            {status}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="rounded-2xl border border-white/10 bg-black/30 px-5 py-4 text-sm font-semibold text-white/80">
+                        Status: {app.status || "Submitted"}
+                      </div>
 
                       <div className="flex gap-3">
                         <Link
@@ -459,7 +397,8 @@ export default function AdminApplicationsPage() {
                         </Link>
 
                         <Link
-                          href={`/dashboard/applications/${app.id}/review`}
+                          href={`/admin/applications/${app.id}`}
+                        
                           className="flex-1 rounded-2xl bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500 px-5 py-4 text-center text-sm font-semibold text-white"
                         >
                           Review
@@ -472,7 +411,7 @@ export default function AdminApplicationsPage() {
 
               {!filteredApplications.length && (
                 <div className="rounded-3xl border border-white/10 bg-black/25 p-8 text-center text-sm text-white/45">
-                  No applications found.
+                  No submitted applications found.
                 </div>
               )}
             </div>

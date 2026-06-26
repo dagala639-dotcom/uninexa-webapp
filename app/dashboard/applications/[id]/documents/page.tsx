@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "../../../logout-button";
 import MobileNav from "../../../mobile-nav";
-import { getUniversityQuestions } from "../university-questions";
+import { getUniversityQuestions } from "@/lib/universities-questions";
 import DocumentsForm from "./documents-form";
 
 export default async function DocumentsPage({
@@ -45,7 +45,7 @@ export default async function DocumentsPage({
     .maybeSingle();
 
   const questions =
-    getUniversityQuestions(application.university_name).documents;
+    getUniversityQuestions(application.university_name).documents || [];
 
   const answers = draft?.answers || {};
 

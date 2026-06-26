@@ -4,6 +4,20 @@ import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "./logout-button";
 import MobileNav from "./mobile-nav";
 
+type ProfileRow = {
+  role?: string | null;
+  personal_information_completed?: boolean | null;
+  address_completed?: boolean | null;
+  contact_details_completed?: boolean | null;
+  demographics_completed?: boolean | null;
+  language_completed?: boolean | null;
+  family_completed?: boolean | null;
+  education_completed?: boolean | null;
+  testing_completed?: boolean | null;
+  activities_completed?: boolean | null;
+  [key: string]: unknown;
+};
+
 const navItems = [
   { name: "Dashboard", href: "/dashboard" },
   { name: "Profile", href: "/dashboard/profile" },
@@ -12,7 +26,6 @@ const navItems = [
   { name: "Documents", href: "/dashboard/documents" },
   { name: "Scholarships", href: "/dashboard/scholarships" },
   { name: "AI Matcher", href: "/dashboard/ai-matcher" },
-  { name: "Messages", href: "/dashboard/messages" },
   { name: "Settings", href: "/dashboard/settings" },
 ];
 
@@ -37,6 +50,18 @@ export default async function DashboardPage() {
 
   if (!user) redirect("/login");
 
+  const { data: profileData } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  const profile = profileData as ProfileRow | null;
+
+  if (profile?.role === "admin") {
+    redirect("/admin");
+  }
+
   const fullName =
     user.user_metadata?.full_name || user.email?.split("@")[0] || "Student";
 
@@ -56,12 +81,6 @@ export default async function DashboardPage() {
     .select("*")
     .eq("user_id", user.id);
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("*")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
   const applicationCount = applications?.length || 0;
   const documentCount = documents?.length || 0;
   const scholarshipCount = trackedScholarships?.length || 0;
@@ -74,10 +93,7 @@ export default async function DashboardPage() {
     (completedProfileSections / profileSections.length) * 100
   );
 
-  const documentCompletion = Math.min(
-    Math.round((documentCount / 6) * 100),
-    100
-  );
+  const documentCompletion = Math.min(Math.round((documentCount / 6) * 100), 100);
 
   const applicationProgress =
     applications && applications.length > 0
@@ -168,9 +184,7 @@ export default async function DashboardPage() {
         <section className="flex-1 p-4 pb-28 sm:p-6 lg:p-10">
           <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-medium text-fuchsia-300">
-                Dashboard
-              </p>
+              <p className="text-sm font-medium text-fuchsia-300">Dashboard</p>
 
               <h2 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl lg:text-5xl">
                 Welcome back, {fullName}.
@@ -209,13 +223,9 @@ export default async function DashboardPage() {
               </div>
 
               <div className="rounded-3xl border border-white/10 bg-black/20 p-5">
-                <p className="text-sm font-medium text-white/60">
-                  Next step
-                </p>
+                <p className="text-sm font-medium text-white/60">Next step</p>
 
-                <h4 className="mt-3 text-xl font-semibold">
-                  {nextStep.title}
-                </h4>
+                <h4 className="mt-3 text-xl font-semibold">{nextStep.title}</h4>
 
                 <p className="mt-2 text-sm text-white/40">
                   {nextStep.description}
@@ -268,9 +278,7 @@ export default async function DashboardPage() {
                   {
                     title: "Complete profile",
                     status:
-                      profileCompletion === 100
-                        ? "Completed"
-                        : "In progress",
+                      profileCompletion === 100 ? "Completed" : "In progress",
                     href: "/dashboard/profile",
                     active: profileCompletion > 0,
                   },
@@ -288,22 +296,20 @@ export default async function DashboardPage() {
                   },
                   {
                     title: "Submit applications",
-                    status:
-                      applicationCount > 0 ? "In progress" : "Locked",
+                    status: applicationCount > 0 ? "In progress" : "Locked",
                     href: "/dashboard/applications",
                     active: applicationCount > 0,
                   },
                   {
                     title: "Find scholarships",
-                    status:
-                      scholarshipCount > 0 ? "Tracking" : "Recommended",
+                    status: scholarshipCount > 0 ? "Tracking" : "Recommended",
                     href: "/dashboard/scholarships",
                     active: scholarshipCount > 0,
                   },
                   {
                     title: "Prepare for admission",
                     status: "Advisor support",
-                    href: "/dashboard/messages",
+                    href: "/dashboard/applications",
                     active: false,
                   },
                 ].map((step, index) => (
@@ -340,36 +346,31 @@ export default async function DashboardPage() {
                 </h3>
 
                 <div className="mt-5 space-y-3">
-                  {[
-                    "Canada",
-                    "United Kingdom",
-                    "Germany",
-                    "Australia",
-                  ].map((country) => (
-                    <Link
-                      key={country}
-                      href="/dashboard/universities"
-                      className="block rounded-2xl border border-white/10 bg-black/20 p-4 transition hover:bg-white/[0.06]"
-                    >
-                      <div className="flex items-center justify-between">
-                        <p className="font-medium">{country}</p>
-                        <span className="text-sm text-fuchsia-300">
-                          Match
-                        </span>
-                      </div>
+                  {["Canada", "United Kingdom", "Germany", "Australia"].map(
+                    (country) => (
+                      <Link
+                        key={country}
+                        href="/dashboard/universities"
+                        className="block rounded-2xl border border-white/10 bg-black/20 p-4 transition hover:bg-white/[0.06]"
+                      >
+                        <div className="flex items-center justify-between">
+                          <p className="font-medium">{country}</p>
+                          <span className="text-sm text-fuchsia-300">
+                            Match
+                          </span>
+                        </div>
 
-                      <p className="mt-1 text-sm text-white/40">
-                        Scholarships and student visa options available.
-                      </p>
-                    </Link>
-                  ))}
+                        <p className="mt-1 text-sm text-white/40">
+                          Scholarships and student visa options available.
+                        </p>
+                      </Link>
+                    )
+                  )}
                 </div>
               </div>
 
               <div className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-fuchsia-500/15 to-blue-500/10 p-5 backdrop-blur-xl sm:p-6">
-                <h3 className="text-xl font-semibold">
-                  UniNexa counselor
-                </h3>
+                <h3 className="text-xl font-semibold">UniNexa counselor</h3>
 
                 <p className="mt-2 text-sm leading-relaxed text-white/50">
                   Get guidance on universities, documents, scholarships, and
@@ -377,10 +378,10 @@ export default async function DashboardPage() {
                 </p>
 
                 <Link
-                  href="/dashboard/messages"
+                  href="/dashboard/applications"
                   className="mt-5 block w-full rounded-2xl bg-white px-5 py-3 text-center text-sm font-semibold text-black transition hover:bg-white/90"
                 >
-                  Open messages
+                  Open applications
                 </Link>
               </div>
             </div>

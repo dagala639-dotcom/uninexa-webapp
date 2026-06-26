@@ -4,6 +4,18 @@ import { createClient } from "@/lib/supabase/server";
 import LogoutButton from "../logout-button";
 import MobileNav from "../mobile-nav";
 
+type Scholarship = {
+  id: string;
+  name: string | null;
+  provider: string | null;
+  region: string | null;
+  funding: string | null;
+  level: string | null;
+  deadline: string | null;
+  website_url: string | null;
+  requirements: string[] | null;
+};
+
 export default async function ScholarshipsPage() {
   const supabase = await createClient();
 
@@ -194,7 +206,7 @@ export default async function ScholarshipsPage() {
               </div>
 
               <div className="grid gap-5 xl:grid-cols-2">
-                {scholarships?.map((scholarship: any) => (
+                {(scholarships as Scholarship[] | null)?.map((scholarship) => (
                   <div
                     key={scholarship.id}
                     className="rounded-[2rem] border border-white/10 bg-gradient-to-br from-black/30 to-white/[0.03] p-5 transition hover:-translate-y-1 hover:border-fuchsia-400/30 hover:shadow-[0_0_50px_rgba(217,70,239,0.12)]"
@@ -364,7 +376,7 @@ export default async function ScholarshipsPage() {
                   </p>
 
                   <div className="mt-4 rounded-full border border-orange-400/20 bg-orange-500/10 px-4 py-2 text-sm text-orange-200">
-                    High funding gap — scholarship support recommended
+                    High funding gap - scholarship support recommended
                   </div>
                 </div>
 
@@ -383,7 +395,7 @@ export default async function ScholarshipsPage() {
                 </p>
 
                 <div className="mt-5 space-y-3">
-                  {scholarships?.slice(0, 4).map((item: any) => (
+                  {(scholarships as Scholarship[] | null)?.slice(0, 4).map((item) => (
                     <div
                       key={item.id}
                       className="rounded-2xl border border-white/10 bg-black/20 p-4"
@@ -427,7 +439,7 @@ export default async function ScholarshipsPage() {
   );
 }
 
-function Info({ label, value }: { label: string; value: string }) {
+function Info({ label, value }: { label: string; value: string | null }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
       <p className="text-xs text-white/35">{label}</p>

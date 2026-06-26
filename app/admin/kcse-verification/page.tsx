@@ -110,7 +110,7 @@ export default function AdminKcseVerificationPage() {
     setSavingId(documentId);
     setMessage("");
 
-    const payload: Record<string, any> = {
+    const payload: Record<string, string> = {
       status: stage,
       verification_stage: stage,
       reviewed_at: new Date().toISOString(),

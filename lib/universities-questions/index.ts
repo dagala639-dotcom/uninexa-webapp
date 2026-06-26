@@ -16,10 +16,24 @@ import { leedsQuestions } from "./leeds";
 import { queensBelfastQuestions } from "./queens-belfast";
 import { heidelbergQuestions } from "./heidelberg";
 import { elteQuestions } from "./elte";
-import * as debrecenQuestions from "./debrecen";
+import { debrecenQuestions } from "./debrecen";
 import { asuQuestions as arizonaStateQuestions } from "./asu";
 
-export function getUniversityQuestions(universityName: string) {
+export type UniversityQuestion = {
+  id: string;
+  type: string;
+  label?: string;
+  question?: string;
+  required?: boolean;
+  options?: string[];
+  placeholder?: string;
+};
+
+type UniversityQuestions = Record<string, UniversityQuestion[]>;
+
+export function getUniversityQuestions(
+  universityName: string | null | undefined
+): UniversityQuestions {
   const name = universityName?.toLowerCase().trim();
 
   if (name === "university of toronto") {
