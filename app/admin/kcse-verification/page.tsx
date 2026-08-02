@@ -62,7 +62,7 @@ export default function AdminKcseVerificationPage() {
     const user = session?.user;
 
     if (!user) {
-      router.push("/login");
+      router.push("/admin/login");
       return;
     }
 

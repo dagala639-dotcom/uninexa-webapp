@@ -3,29 +3,19 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import {
+  type ChatConversation,
+  type ChatMessage,
+  createAdvisorConversation,
+  getMessageText,
+  isMessageFromRole,
+  sendChatMessage,
+  updateConversationAfterMessage,
+} from "@/lib/chat";
 import { ArrowLeft, Send, ShieldCheck } from "lucide-react";
 
-type Conversation = {
-  id: string;
-  user_id: string;
-  student_user_id?: string | null;
-  title?: string | null;
-  category?: string | null;
-  last_message?: string | null;
-  updated_at?: string | null;
-  created_at?: string | null;
-};
-
-type Message = {
-  id: string;
-  conversation_id: string;
-  sender?: string | null;
-  sender_user_id?: string | null;
-  sender_role?: string | null;
-  body?: string | null;
-  message?: string | null;
-  created_at: string;
-};
+type Conversation = ChatConversation;
+type Message = ChatMessage;
 
 export default function StudentMessagesPage() {
   const supabase = useMemo(() => createClient(), []);
@@ -43,7 +33,7 @@ export default function StudentMessagesPage() {
   }, []);
 
   useEffect(() => {
-    if (!conversation) return;
+    if (!conversation?.id) return;
 
     loadMessages(conversation.id);
 
@@ -71,7 +61,31 @@ export default function StudentMessagesPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [conversation, supabase]);
+  }, [conversation?.id, supabase]);
+
+  useEffect(() => {
+    if (!conversation?.id) return;
+
+    const channel = supabase
+      .channel(`student-advisor-conversation-${conversation.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "conversations",
+          filter: `id=eq.${conversation.id}`,
+        },
+        (payload) => {
+          setConversation(payload.new as Conversation);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [conversation?.id, supabase]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -105,26 +119,16 @@ export default function StudentMessagesPage() {
       return;
     }
 
-    const { data: newConversation, error } = await supabase
-      .from("conversations")
-      .insert({
-        user_id: user.id,
-        student_user_id: user.id,
-        title: "UniNexa Advisor",
-        category: "Advisor",
-        last_message: "Start a conversation with your UniNexa advisor.",
-        updated_at: new Date().toISOString(),
-      })
-      .select()
-      .single();
+    try {
+      const newConversation = await createAdvisorConversation(supabase, user.id);
 
-    if (error) {
-      setSendError(error.message);
+      setConversation(newConversation);
+    } catch (error) {
+      setSendError(getErrorMessage(error));
       setLoading(false);
       return;
     }
 
-    setConversation(newConversation);
     setLoading(false);
   }
 
@@ -138,10 +142,6 @@ export default function StudentMessagesPage() {
     setMessages(data || []);
   }
 
-  function getMessageText(message: Message) {
-    return message.body || message.message || "";
-  }
-
   async function sendMessage() {
     if (!newMessage.trim() || !conversation || !studentId) return;
 
@@ -150,44 +150,37 @@ export default function StudentMessagesPage() {
     setNewMessage("");
     setSendError("");
 
-    const { data, error } = await supabase
-      .from("messages")
-      .insert({
-        conversation_id: conversation.id,
-        sender: studentId,
-        sender_user_id: studentId,
-        sender_role: "student",
+    try {
+      const data = await sendChatMessage({
+        supabase,
+        conversationId: conversation.id,
+        senderUserId: studentId,
+        senderRole: "student",
         body: text,
-      })
-      .select()
-      .single();
+      });
 
-    if (error) {
-      setSendError(error.message);
+      setMessages((prev) => {
+        if (prev.some((msg) => msg.id === data.id)) return prev;
+        return [...prev, data];
+      });
+
+      const updatedAt = await updateConversationAfterMessage(
+        supabase,
+        conversation.id,
+        text
+      );
+
+      setConversation({
+        ...conversation,
+        last_message: text,
+        last_message_at: updatedAt,
+        updated_at: updatedAt,
+      });
+    } catch (error) {
+      setSendError(getErrorMessage(error));
       setNewMessage(text);
       return;
     }
-
-    if (data) {
-      setMessages((prev) => {
-        if (prev.some((msg) => msg.id === data.id)) return prev;
-        return [...prev, data as Message];
-      });
-    }
-
-    await supabase
-      .from("conversations")
-      .update({
-        last_message: text,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", conversation.id);
-
-    setConversation({
-      ...conversation,
-      last_message: text,
-      updated_at: new Date().toISOString(),
-    });
   }
 
   if (loading) {
@@ -284,7 +277,7 @@ export default function StudentMessagesPage() {
               )}
 
               {messages.map((message) => {
-                const mine = message.sender_role === "student";
+                const mine = isMessageFromRole(message, "student", studentId);
 
                 return (
                   <div
@@ -347,4 +340,8 @@ export default function StudentMessagesPage() {
       </div>
     </main>
   );
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Unable to send message.";
 }

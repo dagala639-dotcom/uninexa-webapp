@@ -4,27 +4,22 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import {
+  type ChatConversation,
+  type ChatMessage,
+  getConversationStudentId,
+  getMessageText,
+  isMessageFromRole,
+  sendChatMessage,
+  updateConversationAfterMessage,
+} from "@/lib/chat";
 
-type Conversation = {
-  id: string;
-  user_id: string;
+type Conversation = ChatConversation & {
   title?: string | null;
   subject?: string | null;
-  category?: string | null;
-  last_message?: string | null;
-  updated_at?: string | null;
 };
 
-type Message = {
-  id: string;
-  conversation_id: string;
-  sender?: string | null;
-  sender_role?: string | null;
-  sender_id?: string | null;
-  body?: string | null;
-  message?: string | null;
-  created_at: string;
-};
+type Message = ChatMessage;
 
 export default function AdminConversationPage() {
   const supabase = createClient();
@@ -47,7 +42,7 @@ export default function AdminConversationPage() {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      router.push("/login");
+      router.push("/admin/login");
       return;
     }
 
@@ -131,34 +126,25 @@ export default function AdminConversationPage() {
     } = await supabase.auth.getUser();
 
     if (!user) {
-      router.push("/login");
+      router.push("/admin/login");
       return;
     }
 
-    const { error: insertError } = await supabase.from("messages").insert({
-      conversation_id: conversationId,
-      sender: "UniNexa Admin",
-      sender_role: "admin",
-      sender_id: user.id,
-      body: cleanReply,
-      message: cleanReply,
-      created_at: new Date().toISOString(),
-    });
+    try {
+      await sendChatMessage({
+        supabase,
+        conversationId,
+        senderUserId: user.id,
+        senderRole: "admin",
+        body: cleanReply,
+      });
 
-    if (insertError) {
-      setError(insertError.message);
+      await updateConversationAfterMessage(supabase, conversationId, cleanReply);
+    } catch (error) {
+      setError(getErrorMessage(error));
       setSending(false);
       return;
     }
-
-    await supabase
-      .from("conversations")
-      .update({
-        last_message: cleanReply,
-        updated_at: new Date().toISOString(),
-        admin_read: true,
-      })
-      .eq("id", conversationId);
 
     setReply("");
     await loadThread();
@@ -183,7 +169,7 @@ export default function AdminConversationPage() {
               {conversation?.title || conversation?.subject || "Student conversation"}
             </h1>
             <p className="mt-2 text-sm text-white/40">
-              Student ID: {conversation?.user_id}
+              Student ID: {conversation ? getConversationStudentId(conversation) : ""}
             </p>
           </div>
 
@@ -210,12 +196,8 @@ export default function AdminConversationPage() {
 
           <div className="flex-1 space-y-5 overflow-y-auto p-5">
             {messages.map((msg) => {
-              const isAdmin =
-                msg.sender_role === "admin" ||
-                msg.sender === "UniNexa Admin" ||
-                msg.sender === "Admin";
-
-              const text = msg.body || msg.message || "";
+              const isAdmin = isMessageFromRole(msg, "admin");
+              const text = getMessageText(msg);
 
               return (
                 <div
@@ -238,7 +220,9 @@ export default function AdminConversationPage() {
                     </p>
 
                     <p className="mt-3 text-xs text-white/35">
-                      {new Date(msg.created_at).toLocaleString()}
+                      {msg.created_at
+                        ? new Date(msg.created_at).toLocaleString()
+                        : ""}
                     </p>
                   </div>
                 </div>
@@ -278,4 +262,8 @@ export default function AdminConversationPage() {
       </div>
     </main>
   );
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Unable to send message.";
 }

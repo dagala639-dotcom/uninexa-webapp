@@ -45,6 +45,9 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
   const url = request.nextUrl.clone();
+  const isLoginRoute = pathname === LOGIN_ROUTE;
+  const isAdminLoginRoute = pathname === ADMIN_LOGIN_ROUTE;
+  const isUniversityHomeRoute = pathname === UNIVERSITY_ROUTE;
   const isAdminRoute = pathname === ADMIN_ROUTE || pathname.startsWith(`${ADMIN_ROUTE}/`);
   const isUniversityRoute =
     pathname === UNIVERSITY_ROUTE || pathname.startsWith(`${UNIVERSITY_ROUTE}/`);
@@ -58,8 +61,16 @@ export async function updateSession(request: NextRequest) {
   };
 
   if (!user) {
+    if (isLoginRoute || isAdminLoginRoute || isUniversityHomeRoute) {
+      return response;
+    }
+
     if (isAdminRoute) {
       return redirectTo(ADMIN_LOGIN_ROUTE);
+    }
+
+    if (isUniversityRoute) {
+      return redirectTo(UNIVERSITY_ROUTE);
     }
 
     if (isDashboardRoute) {
@@ -86,15 +97,15 @@ export async function updateSession(request: NextRequest) {
 
   const isUniversityUser = Boolean(universityAccount);
 
-  if (pathname === LOGIN_ROUTE) {
+  if (isLoginRoute) {
     if (isAdmin) return redirectTo(ADMIN_ROUTE);
     if (isUniversityUser) return redirectTo(UNIVERSITY_ROUTE);
     return redirectTo(DASHBOARD_ROUTE);
   }
 
-  if (pathname === ADMIN_LOGIN_ROUTE) {
+  if (isAdminLoginRoute) {
     if (isAdmin) return redirectTo(ADMIN_ROUTE);
-    return redirectTo(DASHBOARD_ROUTE);
+    return response;
   }
 
   if (isAdminRoute && !isAdmin) {

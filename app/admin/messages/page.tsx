@@ -3,34 +3,24 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import {
+  type ChatConversation,
+  type ChatMessage,
+  getConversationStudentId,
+  getMessageText,
+  isMessageFromRole,
+  sendChatMessage,
+  updateConversationAfterMessage,
+} from "@/lib/chat";
 import { ArrowLeft, Search, Send, UserRound } from "lucide-react";
 
-type Conversation = {
-  id: string;
-  user_id?: string | null;
-  title?: string | null;
-  category?: string | null;
-  student_user_id?: string | null;
-  student_id?: string | null;
+type Conversation = ChatConversation & {
   assigned_staff_user_id?: string | null;
   assigned_staff_id?: string | null;
   status?: string | null;
-  last_message?: string | null;
-  last_message_at?: string | null;
-  updated_at?: string | null;
-  created_at?: string | null;
 };
 
-type Message = {
-  id: string;
-  conversation_id: string;
-  sender_user_id?: string | null;
-  sender_id?: string | null;
-  sender_role?: string | null;
-  body?: string | null;
-  message?: string | null;
-  created_at: string;
-};
+type Message = ChatMessage;
 
 type Profile = {
   user_id: string;
@@ -70,7 +60,28 @@ export default function AdminMessagesPage() {
   }, []);
 
   useEffect(() => {
-    if (!selectedConversation) return;
+    const channel = supabase
+      .channel("admin-conversations-live")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "conversations",
+        },
+        () => {
+          loadData(false);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [supabase]);
+
+  useEffect(() => {
+    if (!selectedConversation?.id) return;
 
     loadMessages(selectedConversation.id);
 
@@ -98,18 +109,14 @@ export default function AdminMessagesPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [selectedConversation, supabase]);
+  }, [selectedConversation?.id, supabase]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   function getStudentId(conversation: Conversation) {
-    return conversation.student_user_id || conversation.user_id || "";
-  }
-
-  function getMessageText(message: Message) {
-    return message.body || message.message || "";
+    return getConversationStudentId(conversation);
   }
 
   function getProfile(userId: string) {
@@ -120,8 +127,10 @@ export default function AdminMessagesPage() {
     return applications.find((app) => app.user_id === userId);
   }
 
-  async function loadData() {
-    setLoading(true);
+  async function loadData(showLoading = true) {
+    if (showLoading) {
+      setLoading(true);
+    }
 
     const {
       data: { user },
@@ -139,10 +148,13 @@ export default function AdminMessagesPage() {
       .select("*")
       .order("updated_at", { ascending: false });
 
-    const studentIds =
-      conversationData
-        ?.map((item: Conversation) => item.student_user_id || item.student_id || "")
-        .filter(Boolean) || [];
+    const studentIds = Array.from(
+      new Set(
+        (conversationData || [])
+          .map((item: Conversation) => getStudentId(item))
+          .filter(Boolean)
+      )
+    );
 
     let profileData: Profile[] = [];
     let applicationData: Application[] = [];
@@ -166,8 +178,14 @@ export default function AdminMessagesPage() {
     setProfiles(profileData);
     setApplications(applicationData);
 
-    if (conversationData?.length && !selectedConversation) {
-      setSelectedConversation(conversationData[0]);
+    if (conversationData?.length) {
+      const activeConversation = selectedConversation
+        ? conversationData.find(
+            (item: Conversation) => item.id === selectedConversation.id
+          )
+        : null;
+
+      setSelectedConversation(activeConversation || conversationData[0]);
     }
 
     setLoading(false);
@@ -195,52 +213,50 @@ export default function AdminMessagesPage() {
     setNewMessage("");
     setSendError("");
 
-    const { data, error } = await supabase
-      .from("messages")
-      .insert({
-        conversation_id: selectedConversation.id,
-        sender: "adminId",
-        sender_user_id: adminId,
-        sender_role: "admin",
+    try {
+      const data = await sendChatMessage({
+        supabase,
+        conversationId: selectedConversation.id,
+        senderUserId: adminId,
+        senderRole: "admin",
         body: text,
-      })
-      .select()
-      .single();
+      });
 
-    if (error) {
-      setSendError(error.message);
+      setMessages((prev) => {
+        if (prev.some((msg) => msg.id === data.id)) return prev;
+        return [...prev, data];
+      });
+
+      const updatedAt = await updateConversationAfterMessage(
+        supabase,
+        selectedConversation.id,
+        text
+      );
+
+      const updatedConversation = {
+        ...selectedConversation,
+        last_message: text,
+        last_message_at: updatedAt,
+        updated_at: updatedAt,
+      };
+
+      setSelectedConversation(updatedConversation);
+      setConversations((prev) =>
+        prev
+          .map((conversation) =>
+            conversation.id === selectedConversation.id
+              ? updatedConversation
+              : conversation
+          )
+          .sort((a, b) =>
+            String(b.updated_at || "").localeCompare(String(a.updated_at || ""))
+          )
+      );
+    } catch (error) {
+      setSendError(getErrorMessage(error));
       setNewMessage(text);
       return;
     }
-
-    if (data) {
-      setMessages((prev) => {
-        if (prev.some((msg) => msg.id === data.id)) return prev;
-        return [...prev, data as Message];
-      });
-    }
-
-    await supabase
-      .from("conversations")
-      .update({
-        last_message: text,
-        last_message_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", selectedConversation.id);
-
-    setConversations((prev) =>
-      prev.map((conversation) =>
-        conversation.id === selectedConversation.id
-          ? {
-              ...conversation,
-              last_message: text,
-              last_message_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            }
-          : conversation
-      )
-    );
   }
 
   const filteredConversations = conversations.filter((conversation) => {
@@ -428,7 +444,7 @@ export default function AdminMessagesPage() {
               <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
                 <div className="space-y-5">
                   {messages.map((message) => {
-                    const mine = message.sender_role === "admin";
+                    const mine = isMessageFromRole(message, "admin", adminId);
             
 
                     return (
@@ -506,4 +522,8 @@ export default function AdminMessagesPage() {
       </div>
     </main>
   );
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Unable to send message.";
 }

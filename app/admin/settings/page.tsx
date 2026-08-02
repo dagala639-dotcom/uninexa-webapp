@@ -10,7 +10,7 @@ export default async function AdminSettingsPage() {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect("/login");
+    redirect("/admin/login");
   }
 
   const { data: roleData } = await supabase

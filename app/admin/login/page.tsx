@@ -19,7 +19,7 @@ export default function AdminLoginPage() {
     setLoading(true);
     setError("");
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
@@ -30,7 +30,21 @@ export default function AdminLoginPage() {
       return;
     }
 
-    router.push("/admin");
+    const { data: roleData, error: roleError } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", data.user.id)
+      .eq("role", "admin")
+      .maybeSingle();
+
+    if (roleError || roleData?.role !== "admin") {
+      await supabase.auth.signOut();
+      setError("This account does not have admin access.");
+      setLoading(false);
+      return;
+    }
+
+    router.replace("/admin");
     router.refresh();
   }
 

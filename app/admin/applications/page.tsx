@@ -71,7 +71,7 @@ export default function AdminApplicationsPage() {
     const user = session?.user;
 
     if (!user) {
-      router.push("/login");
+      router.push("/admin/login");
       return;
     }
 

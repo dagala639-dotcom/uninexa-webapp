@@ -14,7 +14,7 @@ export default async function AdminApplicationReviewPage({
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) redirect("/login");
+  if (!user) redirect("/admin/login");
 
   const { data: roleData } = await supabase
     .from("user_roles")
